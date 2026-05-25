@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { User, Lock, Eye, EyeOff, LogIn, ShieldAlert } from "lucide-react";
 import { AppUser } from "../types";
 import { storage } from "../lib/storage";
+import { auth } from "../lib/firebase";
+import { signInWithEmailAndPassword } from "firebase/auth";
 
 interface LoginViewProps {
   onLogin: (user: AppUser) => void;
@@ -14,7 +16,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -25,35 +27,98 @@ export default function LoginView({ onLogin }: LoginViewProps) {
 
     setLoading(true);
 
-    // Artificial short delay for high-quality professional loading feel
-    setTimeout(() => {
-      const allUsers = storage.getUsers();
-      const matchedUser = allUsers.find(
-        (u) => u.username.toLowerCase() === username.trim().toLowerCase()
-      );
+    // 1. Intentar primero con la Autenticación Local
+    const allUsers = storage.getUsers();
+    const matchedUser = allUsers.find(
+      (u) => u.username.toLowerCase() === username.trim().toLowerCase()
+    );
 
-      if (!matchedUser) {
-        setError("El usuario ingresado no existe en nuestro sistema.");
-        setLoading(false);
-        return;
-      }
-
-      if (matchedUser.passwordHash !== password) {
-        setError("Contraseña incorrecta. Por favor verifique e intente nuevamente.");
-        setLoading(false);
-        return;
-      }
-
-      // Check if user has any permissions mapped
+    if (matchedUser && matchedUser.passwordHash === password) {
       if (!matchedUser.permissions || matchedUser.permissions.length === 0) {
         setError("Este usuario no cuenta con casillas de acceso asignadas. Contacte al administrador.");
         setLoading(false);
         return;
       }
-
       setLoading(false);
       onLogin(matchedUser);
-    }, 400);
+      return;
+    }
+
+    // 2. Si las credenciales locales no coinciden o no existe el usuario local, intentamos vía Firebase Authentication
+    try {
+      const isEmail = username.includes("@");
+      let emailToAuth = username.trim();
+
+      // Si ingresaron un nombre de usuario que coincide con un usuario local que tiene correo válido
+      if (!isEmail && matchedUser?.username && matchedUser.username.includes("@")) {
+        emailToAuth = matchedUser.username;
+      }
+
+      // Realizar la autenticación real en Firebase
+      const userCredential = await signInWithEmailAndPassword(auth, emailToAuth, password);
+      const fbUser = userCredential.user;
+
+      if (fbUser) {
+        const latestUsers = storage.getUsers();
+        let finalUser = latestUsers.find(
+          (u) => u.id === fbUser.uid || u.username.toLowerCase() === fbUser.email?.toLowerCase()
+        );
+
+        if (!finalUser) {
+          // Crear un usuario local sincronizado y con todos los permisos por defecto
+          finalUser = {
+            id: fbUser.uid,
+            name: fbUser.displayName || fbUser.email?.split("@")[0] || "Usuario Nube",
+            username: fbUser.email || username.trim(),
+            passwordHash: password, // Almacenar contraseña local para permitir accesos offline futuros
+            cargo: "Administrador Cloud",
+            permissions: ['dashboard', 'income', 'expense', 'billing', 'generalBilling', 'calculator', 'cashClose', 'condos', 'settings', 'users', 'personal', 'reporte_diario'],
+            createdAt: new Date().toISOString()
+          };
+          const updatedUsers = [...latestUsers, finalUser];
+          storage.saveUsers(updatedUsers);
+        } else {
+          // Si el usuario existe, sincronizar la contraseña local para que coincida con la de Firebase
+          let changed = false;
+          if (finalUser.passwordHash !== password) {
+            finalUser.passwordHash = password;
+            changed = true;
+          }
+          if (!finalUser.permissions || finalUser.permissions.length === 0) {
+            finalUser.permissions = ['dashboard', 'income', 'expense', 'billing', 'generalBilling', 'calculator', 'cashClose', 'condos', 'settings', 'users', 'personal', 'reporte_diario'];
+            changed = true;
+          }
+          if (changed) {
+            storage.saveUsers(latestUsers);
+          }
+        }
+
+        setLoading(false);
+        onLogin(finalUser);
+        return;
+      }
+    } catch (fbErr: any) {
+      console.error("[Firebase Login Error]", fbErr);
+      
+      let friendlyError = "";
+      if (fbErr.code === "auth/invalid-credential" || fbErr.code === "auth/wrong-password" || fbErr.code === "auth/user-not-found") {
+        friendlyError = "Credenciales incorrectas de Firebase. Verifica tu usuario/correo y contraseña.";
+      } else if (fbErr.code === "auth/invalid-email") {
+        friendlyError = "El correo electrónico de Firebase ingresado no es válido.";
+      } else if (fbErr.code === "auth/network-request-failed") {
+        friendlyError = "Error de red: No se pudo conectar a los servidores de Firebase.";
+      } else {
+        friendlyError = fbErr.message || "Usuario o contraseña no válidos en el sistema local ni en Firebase.";
+      }
+
+      if (matchedUser && matchedUser.passwordHash !== password) {
+        setError("Contraseña incorrecta. Por favor verifique e intente nuevamente.");
+      } else {
+        setError(friendlyError);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -92,7 +157,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
           {/* Username Input */}
           <div className="space-y-2 text-left">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">
-              Usuario de Sistema
+              Usuario de Sistema o Correo Firebase
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-500">
@@ -103,7 +168,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
                 autoFocus
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Ejemplo: Admin"
+                placeholder="Ejemplo: admin@correo.com o Admin"
                 disabled={loading}
                 className="w-full h-12 pl-12 pr-4 bg-slate-900 border border-slate-800 hover:border-slate-700 focus:border-blue-500 rounded-xl text-sm font-bold text-white outline-none focus:ring-1 focus:ring-blue-500 transition-all placeholder-slate-600"
               />

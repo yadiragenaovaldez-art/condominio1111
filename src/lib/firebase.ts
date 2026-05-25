@@ -2,14 +2,23 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getAnalytics, isSupported } from 'firebase/analytics';
-import firebaseConfig from '../../firebase-applet-config.json';
+
+// Tu configuración de Firebase para condo1-ca3b0
+const firebaseConfig = {
+  apiKey: "AIzaSyDYGiXiFrgzEPDDB48BGBLjZNbUDz6gbvQ",
+  authDomain: "condo1-ca3b0.firebaseapp.com",
+  databaseURL: "https://condo1-ca3b0-default-rtdb.firebaseio.com",
+  projectId: "condo1-ca3b0",
+  storageBucket: "condo1-ca3b0.firebasestorage.app",
+  messagingSenderId: "688452449935",
+  appId: "1:688452449935:web:417405b66923abd8a3e2fa",
+  measurementId: "G-FYZDBEYT21"
+};
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore safely depending on whether a custom database ID is defined
-export const db = (firebaseConfig as any).firestoreDatabaseId
-  ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId)
-  : getFirestore(app);
+// Inicializar Firestore (usa base de datos por defecto)
+export const db = getFirestore(app);
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
