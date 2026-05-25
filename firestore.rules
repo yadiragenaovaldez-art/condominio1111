@@ -2,153 +2,24 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Global Safety Net
+    // Bloqueo global de seguridad
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Common safety primitives
-    function isSignedIn() {
-      return request.auth != null;
+    // Permitir lectura a visitantes públicos para que cargue el selector de condominios
+    match /users/{userId}/condos/{docId} {
+      allow read: if true;
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    // Permitir crear registros a visitantes públicos para el formulario de autoregistro
+    match /users/{userId}/owner_registrations/{docId} {
+      allow create: if true;
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // Master Gate (User Isolation)
-    match /users/{userId} {
-      allow read, write: if isOwner(userId);
-
-      match /condos/{condoId} {
-        allow read: if true;
-        allow write: if isOwner(userId) && isValidId(condoId);
-      }
-
-      match /owner_registrations/{registrationId} {
-        allow create: if true;
-        allow get: if isOwner(userId) && isValidId(registrationId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(registrationId);
-      }
-
-      match /units/{unitId} {
-        allow get: if isOwner(userId) && isValidId(unitId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(unitId);
-      }
-
-      match /transactions/{transactionId} {
-        allow get: if isOwner(userId) && isValidId(transactionId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(transactionId);
-      }
-
-      match /categories/{categoryId} {
-        allow get: if isOwner(userId) && isValidId(categoryId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(categoryId);
-      }
-
-      match /concepts/{conceptId} {
-        allow get: if isOwner(userId) && isValidId(conceptId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(conceptId);
-      }
-
-      match /tasks/{taskId} {
-        allow get: if isOwner(userId) && isValidId(taskId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(taskId);
-      }
-
-      match /maintenance/{maintenanceId} {
-        allow get: if isOwner(userId) && isValidId(maintenanceId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(maintenanceId);
-      }
-
-      match /repairs/{repairId} {
-        allow get: if isOwner(userId) && isValidId(repairId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(repairId);
-      }
-
-      match /staff/{staffId} {
-        allow get: if isOwner(userId) && isValidId(staffId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(staffId);
-      }
-
-      match /suppliers/{supplierId} {
-        allow get: if isOwner(userId) && isValidId(supplierId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(supplierId);
-      }
-
-      match /products/{productId} {
-        allow get: if isOwner(userId) && isValidId(productId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(productId);
-      }
-
-      match /sales/{saleId} {
-        allow get: if isOwner(userId) && isValidId(saleId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(saleId);
-      }
-
-      match /clients/{clientId} {
-        allow get: if isOwner(userId) && isValidId(clientId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(clientId);
-      }
-
-      match /quotes/{quoteId} {
-        allow get: if isOwner(userId) && isValidId(quoteId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(quoteId);
-      }
-
-      match /ticketSettings/{settingId} {
-        allow get: if isOwner(userId) && isValidId(settingId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(settingId);
-      }
-
-      match /appUsers/{uId} {
-        allow get: if isOwner(userId) && isValidId(uId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(uId);
-      }
-
-      match /employees/{employeeId} {
-        allow get: if isOwner(userId) && isValidId(employeeId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(employeeId);
-      }
-
-      match /workAreas/{areaId} {
-        allow get: if isOwner(userId) && isValidId(areaId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(areaId);
-      }
-
-      match /receipts/{receiptId} {
-        allow get: if isOwner(userId) && isValidId(receiptId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(receiptId);
-      }
-
-      match /cortes/{corteId} {
-        allow get: if isOwner(userId) && isValidId(corteId);
-        allow list: if isOwner(userId);
-        allow write: if isOwner(userId) && isValidId(corteId);
-      }
+    // El administrador dueño tiene acceso completo a sus subcolecciones
+    match /users/{userId}/{anyCollection}/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }

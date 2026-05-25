@@ -13,7 +13,10 @@ import {
   Building, 
   ArrowRight,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  Copy,
+  Check,
+  Database
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -29,6 +32,8 @@ export function PublicOwnerRegistration() {
   const [condos, setCondos] = useState<Condominio[]>([]);
   const [loadingCondos, setLoadingCondos] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isPermissionError, setIsPermissionError] = useState(false);
+  const [copied, setCopied] = useState(false);
   
   // Form fields
   const [condominioId, setCondominioId] = useState("");
@@ -75,10 +80,42 @@ export function PublicOwnerRegistration() {
       }
     } catch (err: any) {
       console.error("Error fetching condos:", err);
-      setErrorMsg("No se pudieron cargar los residenciales. Verifique su conexión de red.");
+      const isPerm = 
+        err.code === "permission-denied" || 
+        (err.message && (err.message.toLowerCase().includes("permission") || err.message.toLowerCase().includes("insufficient")));
+      
+      if (isPerm) {
+        setIsPermissionError(true);
+        setErrorMsg("⚠️ DOMINIO O REGLAS DE FIRESTORE: Las reglas de seguridad de este proyecto Firebase están denegando el acceso público para listar los condominios.");
+      } else {
+        setErrorMsg("No se pudieron cargar los residenciales. Verifique su conexión de red o el identificador del administrador.");
+      }
     } finally {
       setLoadingCondos(false);
     }
+  };
+
+  const copyRulesToClipboard = () => {
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    match /users/{userId}/condos/{docId} {
+      allow read: if true;
+    }
+    match /users/{userId}/owner_registrations/{docId} {
+      allow create: if true;
+    }
+    match /users/{userId}/{anyCollection}/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}`;
+    navigator.clipboard.writeText(rules);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -164,14 +201,104 @@ export function PublicOwnerRegistration() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-rose-500/10 border border-rose-500/30 p-5 rounded-xl flex flex-col items-center text-center gap-3 my-4"
+              className="my-4 focus-within:outline-hidden"
             >
-              <AlertTriangle className="w-8 h-8 text-rose-400" />
-              <p className="text-sm font-bold text-rose-300 leading-relaxed">{errorMsg}</p>
-              <p className="text-[10px] text-slate-500 max-w-xs uppercase font-extrabold tracking-widest mt-2">
-                Consulte al administrador de su propiedad
-              </p>
+              {isPermissionError ? (
+                <div className="bg-slate-900/60 border border-teal-500/20 rounded-xl p-5 text-left space-y-4">
+                  <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+                    <Database className="w-5 h-5 text-teal-400 animate-pulse" />
+                    <div>
+                      <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                        Configuración de Reglas de Firestore
+                      </h3>
+                      <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                        Acción requerida para tu proyecto condo1-ca3b0
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-300 leading-relaxed font-medium">
+                    Detectamos una restricción de permisos en tu base de datos de Firebase. Para habilitar el registro público de propietarios de forma segura, sigue estos 3 sencillos pasos:
+                  </p>
+
+                  <ul className="text-xs text-slate-400 space-y-2 font-medium">
+                    <li className="flex items-start gap-2">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-teal-500/10 text-teal-400 flex items-center justify-center text-[10px] font-bold">1</span>
+                      <span>
+                        Ve a la sección de Reglas en tu consola de Firebase:{" "}
+                        <a 
+                          href={`https://console.firebase.google.com/project/${db.app?.options?.projectId || "condo1-ca3b0"}/firestore/rules`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-teal-400 hover:text-teal-300 underline font-bold transition-colors"
+                        >
+                          Abrir Reglas de Firestore ↗
+                        </a>
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-teal-500/10 text-teal-400 flex items-center justify-center text-[10px] font-bold">2</span>
+                      <span>Copia el código de reglas seguras optimizado abajo.</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-teal-500/10 text-teal-400 flex items-center justify-center text-[10px] font-bold">3</span>
+                      <span>Reemplaza las reglas actuales en Firebase, haz clic en <strong>Publish (Publicar)</strong> y recarga este enlace de propietarios.</span>
+                    </li>
+                  </ul>
+
+                  {/* Rules Box with Copy Button */}
+                  <div className="relative bg-slate-950 border border-slate-800 rounded-lg p-3 mt-2 overflow-hidden">
+                    <div className="absolute top-2 right-2 z-10">
+                      <button
+                        type="button"
+                        onClick={copyRulesToClipboard}
+                        className="p-1 px-2.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold rounded-md text-slate-300 flex items-center gap-1.5 transition-all"
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="w-3 h-3 text-teal-400" />
+                            <span className="text-[10px] text-teal-400 font-bold uppercase tracking-wider">Copiado</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3 text-slate-400 hover:text-white" />
+                            <span className="text-[10px] uppercase tracking-wider">Copiar</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <pre className="text-[10px] text-slate-400 font-mono tracking-wide leading-relaxed overflow-x-auto max-h-48 pt-6 pr-4 tab-size-2">
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    match /users/{userId}/condos/{docId} {
+      allow read: if true;
+    }
+    match /users/{userId}/owner_registrations/{docId} {
+      allow create: if true;
+    }
+    match /users/{userId}/{anyCollection}/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}`}
+                    </pre>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-rose-500/10 border border-rose-500/30 p-5 rounded-xl flex flex-col items-center text-center gap-3">
+                  <AlertTriangle className="w-8 h-8 text-rose-400" />
+                  <p className="text-sm font-bold text-rose-300 leading-relaxed">{errorMsg}</p>
+                  <p className="text-[10px] text-slate-500 max-w-xs uppercase font-extrabold tracking-widest mt-2">
+                    Consulte al administrador de su propiedad
+                  </p>
+                </div>
+              )}
             </motion.div>
+
           ) : loadingCondos ? (
             <motion.div 
               key="loading"
