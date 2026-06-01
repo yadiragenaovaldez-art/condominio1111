@@ -1,7 +1,9 @@
 {
-  "name": "react-example",
+  "name": "condobill",
   "private": true,
   "version": "1.0.0",
+  "description": "CONDOBill - Facturacion de Condominios y Caja",
+  "author": "Yadira <Yadiragenaovaldez@gmail.com>",
   "type": "module",
   "main": "electron.cjs",
   "scripts": {
