@@ -55,13 +55,26 @@
       "output": "dist-desktop"
     },
     "win": {
-      "target": "nsis"
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CONDOBill"
     },
     "mac": {
-      "target": "dmg"
+      "target": [
+        "dmg"
+      ]
     },
     "linux": {
-      "target": "AppImage"
+      "target": [
+        "AppImage"
+      ]
     }
   }
 }

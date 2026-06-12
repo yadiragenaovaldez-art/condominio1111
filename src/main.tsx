@@ -64,8 +64,8 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 );
 
-// Register Progressive Web App Service Worker (only in standard web servers, not in local Electron file:// files)
-if ('serviceWorker' in navigator && typeof window !== 'undefined' && window.location.protocol !== 'file:') {
+// Register Progressive Web App Service Worker (only in standard web servers, not in local Electron files/protocols)
+if ('serviceWorker' in navigator && typeof window !== 'undefined' && window.location.protocol !== 'file:' && window.location.protocol !== 'app:') {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
       .then(reg => {
