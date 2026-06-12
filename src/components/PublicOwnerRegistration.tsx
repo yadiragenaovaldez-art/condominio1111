@@ -29,6 +29,7 @@ interface Condominio {
 
 export function PublicOwnerRegistration() {
   const [adminId, setAdminId] = useState<string | null>(null);
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [condos, setCondos] = useState<Condominio[]>([]);
   const [loadingCondos, setLoadingCondos] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -51,18 +52,26 @@ export function PublicOwnerRegistration() {
     // Parse URL parameters
     const params = new URLSearchParams(window.location.search);
     const id = params.get("adminId");
-    if (id) {
+    const gid = params.get("groupId");
+    
+    if (gid) {
+      setGroupId(gid);
+      fetchCondos(gid, true);
+    } else if (id) {
       setAdminId(id);
-      fetchCondos(id);
+      fetchCondos(id, false);
     } else {
       setLoadingCondos(false);
-      setErrorMsg("El enlace de registro no es válido. Falta el identificador del administrador.");
+      setErrorMsg("El enlace de registro no es válido. Falta el identificador del administrador o del grupo.");
     }
   }, []);
 
-  const fetchCondos = async (uid: string) => {
+  const fetchCondos = async (identifier: string, isGroup: boolean) => {
     try {
-      const colRef = collection(db, "users", uid, "condos");
+      const colRef = isGroup
+        ? collection(db, "shared_namespaces", identifier, "condos")
+        : collection(db, "users", identifier, "condos");
+        
       const snapshot = await getDocs(colRef);
       const list: Condominio[] = [];
       snapshot.forEach((docSnap) => {
@@ -88,7 +97,7 @@ export function PublicOwnerRegistration() {
         setIsPermissionError(true);
         setErrorMsg("⚠️ DOMINIO O REGLAS DE FIRESTORE: Las reglas de seguridad de este proyecto Firebase están denegando el acceso público para listar los condominios.");
       } else {
-        setErrorMsg("No se pudieron cargar los residenciales. Verifique su conexión de red o el identificador del administrador.");
+        setErrorMsg("No se pudieron cargar los residenciales. Verifique su conexión de red o la configuración.");
       }
     } finally {
       setLoadingCondos(false);
@@ -137,7 +146,7 @@ service cloud.firestore {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adminId || !condominioId || !numero || !ownerName || !whatsapp) {
+    if ((!adminId && !groupId) || !condominioId || !numero || !ownerName || !whatsapp) {
       alert("Por favor complete todos los campos obligatorios (*).");
       return;
     }
@@ -148,8 +157,12 @@ service cloud.firestore {
       const condominioName = selectedCondo ? selectedCondo.name : "Condominio Desconocido";
       const regId = "reg_" + Math.random().toString(36).substring(2, 11) + "_" + Date.now();
 
+      const docRef = groupId
+        ? doc(db, "shared_namespaces", groupId, "owner_registrations", regId)
+        : doc(db, "users", adminId!, "owner_registrations", regId);
+
       // Write direct self-registration document
-      await setDoc(doc(db, "users", adminId, "owner_registrations", regId), {
+      await setDoc(docRef, {
         id: regId,
         condominioId,
         condominioName,

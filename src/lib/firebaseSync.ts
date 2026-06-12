@@ -53,19 +53,36 @@ export function getLocalStats(): SyncStats {
   };
 }
 
+export interface FirestoreRoot {
+  baseCol: string;
+  baseId: string;
+}
+
 /**
- * Upload active local storage data arrays to Firestore under the authenticated user's private space.
+ * Returns the firebase path source of truth (private UID vs Shared Group Code)
+ */
+export function getSyncRoot(userId: string): FirestoreRoot {
+  const groupCode = (localStorage.getItem("condobill_group_code") || "").trim();
+  if (groupCode !== "") {
+    return { baseCol: "shared_namespaces", baseId: groupCode };
+  }
+  return { baseCol: "users", baseId: userId };
+}
+
+/**
+ * Upload active local storage data arrays to Firestore under the authenticated user's private space or group space.
  */
 export async function uploadToCloud(userId: string): Promise<void> {
   const localData = storage.exportAllData();
+  const root = getSyncRoot(userId);
 
   for (const [localStorageKey, syncMeta] of Object.entries(SYNC_MAP)) {
     const rawData = localData[localStorageKey];
-    const path = `users/${userId}/${syncMeta.colName}`;
+    const path = `${root.baseCol}/${root.baseId}/${syncMeta.colName}`;
 
     try {
       // 1. Fetch existing documents from Firestore to delete them and write the new ones (mirror upload)
-      const colRef = collection(db, 'users', userId, syncMeta.colName);
+      const colRef = collection(db, root.baseCol, root.baseId, syncMeta.colName);
       const snapshot = await getDocs(colRef);
       
       // Delete existing
@@ -88,7 +105,7 @@ export async function uploadToCloud(userId: string): Promise<void> {
       // 2. Upload present local data
       if (syncMeta.isSingleDoc) {
         if (rawData) {
-          const docRef = doc(db, 'users', userId, syncMeta.colName, 'settings');
+          const docRef = doc(db, root.baseCol, root.baseId, syncMeta.colName, 'settings');
           await setDoc(docRef, rawData);
         }
       } else if (Array.isArray(rawData) && rawData.length > 0) {
@@ -98,7 +115,7 @@ export async function uploadToCloud(userId: string): Promise<void> {
         for (const item of rawData) {
           if (!item || !item.id) continue;
           
-          const docRef = doc(db, 'users', userId, syncMeta.colName, item.id);
+          const docRef = doc(db, root.baseCol, root.baseId, syncMeta.colName, item.id);
           batch.set(docRef, item);
           batchCount++;
 
@@ -124,18 +141,19 @@ export async function uploadToCloud(userId: string): Promise<void> {
  */
 export async function downloadFromCloud(userId: string): Promise<SyncStats> {
   const downloadedMap: Record<string, any> = {};
+  const root = getSyncRoot(userId);
 
   for (const [localStorageKey, syncMeta] of Object.entries(SYNC_MAP)) {
-    const path = `users/${userId}/${syncMeta.colName}`;
+    const path = `${root.baseCol}/${root.baseId}/${syncMeta.colName}`;
     try {
       if (syncMeta.isSingleDoc) {
-        const colRef = collection(db, 'users', userId, syncMeta.colName);
+        const colRef = collection(db, root.baseCol, root.baseId, syncMeta.colName);
         const snapshot = await getDocs(colRef);
         if (!snapshot.empty) {
           downloadedMap[localStorageKey] = snapshot.docs[0].data();
         }
       } else {
-        const colRef = collection(db, 'users', userId, syncMeta.colName);
+        const colRef = collection(db, root.baseCol, root.baseId, syncMeta.colName);
         const snapshot = await getDocs(colRef);
         const list: any[] = [];
         snapshot.forEach((docSnap) => {

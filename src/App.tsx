@@ -153,7 +153,10 @@ export default function App() {
 
     const setupListener = (fbUser: any) => {
       if (!fbUser) return;
-      const colRef = collection(db, "users", fbUser.uid, "owner_registrations");
+      const groupCode = (localStorage.getItem("condobill_group_code") || "").trim();
+      const colRef = groupCode !== ""
+        ? collection(db, "shared_namespaces", groupCode, "owner_registrations")
+        : collection(db, "users", fbUser.uid, "owner_registrations");
       
       unsubscribe = onSnapshot(colRef, async (snapshot) => {
         const list: any[] = [];
@@ -201,7 +204,11 @@ export default function App() {
 
             // Mark as processed in Firestore
             try {
-              await setDoc(doc(db, "users", fbUser.uid, "owner_registrations", reg.id), {
+              const docRef = groupCode !== ""
+                ? doc(db, "shared_namespaces", groupCode, "owner_registrations", reg.id)
+                : doc(db, "users", fbUser.uid, "owner_registrations", reg.id);
+                
+              await setDoc(docRef, {
                 ...reg,
                 status: "processed",
                 processedAt: Date.now()
@@ -5647,6 +5654,20 @@ function SalesView({
     );
   };
 
+  const updatePrice = (id: string, value: string) => {
+    const val = value === "" ? 0 : parseFloat(value);
+    if (!isNaN(val)) {
+      setCart((prev) =>
+        prev.map((item) => {
+          if (item.id === id) {
+            return { ...item, salePrice: Math.max(0, val) };
+          }
+          return item;
+        }),
+      );
+    }
+  };
+
   const addCommonItem = () => {
     if (!commonName || !commonPrice) return;
     const price = parseFloat(commonPrice);
@@ -6061,8 +6082,21 @@ function SalesView({
                           <Plus size={7} />
                         </button>
                         <span className="text-[7px] font-bold text-white/40 ml-0.5">
-                          x ${item.salePrice}
+                          x
                         </span>
+                        <div className="inline-flex items-center bg-white/5 border border-white/10 rounded px-1 py-0.5 focus-within:border-emerald-500/50 transition-all gap-0.5 shrink-0">
+                          <span className="text-[7.5px] font-black text-emerald-400 font-mono select-none">$</span>
+                          <input
+                            type="number"
+                            value={item.salePrice === 0 ? "" : item.salePrice}
+                            min="0"
+                            step="any"
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => updatePrice(item.id, e.target.value)}
+                            className="bg-transparent text-emerald-400 font-black text-[8px] outline-none w-10 font-mono text-left focus:text-white"
+                            placeholder="0.00"
+                          />
+                        </div>
                       </div>
                     </div>
                     <button

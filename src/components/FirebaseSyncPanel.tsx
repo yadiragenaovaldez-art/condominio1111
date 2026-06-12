@@ -44,6 +44,11 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
     return rawVal === null ? true : rawVal === "true";
   });
 
+  const [groupCode, setGroupCode] = useState(() => {
+    return localStorage.getItem("condobill_group_code") || "";
+  });
+  const [groupCodeInput, setGroupCodeInput] = useState(groupCode);
+
   // Email and password form state
   const [loginMethod, setLoginMethod] = useState<'google' | 'email'>('email'); // Default to email to help them instantly!
   const [email, setEmail] = useState("");
@@ -53,6 +58,34 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
   const toggleAutoCloudSync = (enabled: boolean) => {
     localStorage.setItem("condobill_auto_cloud_sync", String(enabled));
     setAutoCloudSync(enabled);
+  };
+
+  const handleSaveGroupCode = () => {
+    const cleanCode = groupCodeInput.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, "");
+    if (cleanCode === "") {
+      localStorage.removeItem("condobill_group_code");
+      setGroupCode("");
+      setGroupCodeInput("");
+      refreshStats();
+      onSyncComplete();
+      alert("Se eliminó el código de grupo. Se restauró tu espacio privado.");
+    } else {
+      localStorage.setItem("condobill_group_code", cleanCode);
+      setGroupCode(cleanCode);
+      setGroupCodeInput(cleanCode);
+      refreshStats();
+      onSyncComplete();
+      alert(`¡Código de Grupo activado: "${cleanCode}"! Todos tus datos sincronizados ahora se compartirán con cualquiera que introduzca este mismo código.`);
+    }
+  };
+
+  const handleDisableGroupCode = () => {
+    localStorage.removeItem("condobill_group_code");
+    setGroupCode("");
+    setGroupCodeInput("");
+    refreshStats();
+    onSyncComplete();
+    alert("Se ha desactivado el código de grupo. Regresaste a tu espacio privado.");
   };
 
   // Load and subscribe to Firebase Auth states
@@ -454,29 +487,74 @@ Para activarlo de inmediato, sigue estos sencillos pasos:
             </button>
           </div>
 
+          {/* Grupo Compartido (Multi-usuario con correos individuales - ¡RECIÉN IMPLEMENTADO! 🚀) */}
+          <div className="p-5 bg-gradient-to-br from-indigo-50/70 to-blue-50/50 border border-indigo-200/60 rounded-3xl space-y-3 shadow-inner text-left">
+            <div className="flex items-center gap-2 text-indigo-700">
+              <Share2 size={16} className="text-indigo-600 shrink-0" />
+              <span className="text-[11px] font-black uppercase tracking-wider">Grupo Compartido (Multi-usuario)</span>
+            </div>
+            <p className="text-[10px] font-bold text-slate-500 uppercase leading-relaxed">
+              Introduce un código único alfanumérico para que todos tus colaboradores administren y visualicen el mismo condominio en tiempo real bajo correos individuales.
+            </p>
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                value={groupCodeInput}
+                onChange={(e) => setGroupCodeInput(e.target.value)}
+                placeholder="Ejemplo: villa_maria_admin_2026"
+                className="flex-1 bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-[10px] font-mono text-slate-700 focus:outline-none shadow-sm focus:border-indigo-300"
+              />
+              <button
+                type="button"
+                onClick={handleSaveGroupCode}
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 hover:scale-[1.02] text-white rounded-xl text-[9px] font-black uppercase tracking-widest shrink-0 transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
+              >
+                Guardar Código
+              </button>
+            </div>
+            {groupCode && (
+              <div className="flex items-center justify-between pt-1 text-[9px] font-bold text-indigo-800 uppercase tracking-wider">
+                <span>🟢 Código Activo: "{groupCode}"</span>
+                <button
+                  type="button"
+                  onClick={handleDisableGroupCode}
+                  className="text-rose-600 hover:text-rose-800 hover:underline outline-none cursor-pointer"
+                >
+                  Volver a Privado
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Enlace de Registro Único para Propietarios */}
-          <div className="p-5 bg-gradient-to-br from-blue-50/70 to-indigo-50/50 border border-blue-200/60 rounded-3xl space-y-3 shadow-inner text-left">
-            <div className="flex items-center gap-2 text-blue-700">
-              <Share2 size={16} className="text-blue-600 shrink-0" />
+          <div className="p-5 bg-gradient-to-br from-emerald-50/70 to-teal-50/50 border border-emerald-200/60 rounded-3xl space-y-3 shadow-inner text-left">
+            <div className="flex items-center gap-2 text-emerald-800">
+              <UserPlus size={16} className="text-emerald-750 shrink-0" />
               <span className="text-[11px] font-black uppercase tracking-wider">Tu Enlace de Registro Único</span>
             </div>
             <p className="text-[10px] font-bold text-slate-500 uppercase leading-relaxed">
-              Envía este enlace a tus propietarios para que registren sus datos de forma remota. Recibirás sus datos en tiempo real de manera sincronizada:
+              Envía este enlace a tus propietarios para que registren sus datos de forma remota. Recibirás sus datos en tiempo real de manera sincronizada {groupCode ? "en el Grupo Activo" : "en tu cuenta personal"}:
             </p>
             <div className="flex gap-2 items-center">
               <input
                 type="text"
                 readOnly
-                value={`${window.location.origin}/?register-owner=true&adminId=${firebaseUser.uid}`}
-                className="flex-1 bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-[10px] font-mono text-slate-700 select-all focus:outline-none shadow-sm focus:border-blue-300"
+                value={groupCode 
+                  ? `${window.location.origin}/?register-owner=true&groupId=${groupCode}` 
+                  : `${window.location.origin}/?register-owner=true&adminId=${firebaseUser.uid}`
+                }
+                className="flex-1 bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-[10px] font-mono text-slate-700 select-all focus:outline-none shadow-sm focus:border-emerald-300"
               />
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/?register-owner=true&adminId=${firebaseUser.uid}`);
+                  const url = groupCode 
+                    ? `${window.location.origin}/?register-owner=true&groupId=${groupCode}` 
+                    : `${window.location.origin}/?register-owner=true&adminId=${firebaseUser.uid}`;
+                  navigator.clipboard.writeText(url);
                   alert("¡Enlace copiado al portapapeles con éxito!");
                 }}
-                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 hover:scale-[1.02] text-white rounded-xl text-[9px] font-black uppercase tracking-widest shrink-0 transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 hover:scale-[1.02] text-white rounded-xl text-[9px] font-black uppercase tracking-widest shrink-0 transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
               >
                 <Copy size={12} />
                 Copiar
@@ -485,7 +563,11 @@ Para activarlo de inmediato, sigue estos sencillos pasos:
             <div className="pt-2.5 border-t border-slate-200/60 flex flex-wrap gap-2">
               <a
                 href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                  `Estimado propietario, por favor registre o actualice sus datos en nuestro sistema de administración de condominios ingresando en el siguiente enlace único:\n\n${window.location.origin}/?register-owner=true&adminId=${firebaseUser.uid}`
+                  `Estimado propietario, por favor registre o actualice sus datos en nuestro sistema de administración de condominios ingresando en el siguiente enlace único:\n\n` + 
+                  (groupCode 
+                    ? `${window.location.origin}/?register-owner=true&groupId=${groupCode}` 
+                    : `${window.location.origin}/?register-owner=true&adminId=${firebaseUser.uid}`
+                  )
                 )}`}
                 target="_blank"
                 rel="noreferrer"

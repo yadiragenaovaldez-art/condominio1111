@@ -21,5 +21,22 @@ service cloud.firestore {
     match /users/{userId}/{anyCollection}/{docId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+
+    // --- RECIÉN IMPLEMENTADO: Código de Grupo Compartido (Multi-usuario) ---
+
+    // Permitir lectura a visitantes públicos para condominios de grupo
+    match /shared_namespaces/{namespaceId}/condos/{docId} {
+      allow read: if true;
+    }
+
+    // Permitir crear registros a visitantes públicos para autoregistro en el grupo
+    match /shared_namespaces/{namespaceId}/owner_registrations/{docId} {
+      allow create: if true;
+    }
+
+    // Acceso para cualquier usuario autenticado a las colecciones del espacio de grupo
+    match /shared_namespaces/{namespaceId}/{anyCollection}/{docId} {
+      allow read, write: if request.auth != null;
+    }
   }
 }
