@@ -11,7 +11,7 @@ import {
   CheckCircle2, 
   ShieldAlert 
 } from "lucide-react";
-import { uploadToCloud, downloadFromCloud, getLocalStats, ensureFirebaseAuth } from "../lib/firebaseSync";
+import { uploadToCloud, downloadFromCloud, getLocalStats, ensureFirebaseAuth, checkGroupCodeExists, createGroupCodeInCloud } from "../lib/firebaseSync";
 
 interface GroupSyncModalProps {
   onClose: () => void;
@@ -35,22 +35,36 @@ export default function GroupSyncModal({ onClose, onReload }: GroupSyncModalProp
     setLoading(true);
     setMessage(null);
 
-    const code = groupCode.trim();
+    const code = groupCode.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, "");
     try {
       if (code !== "") {
-        localStorage.setItem("condobill_group_code", code);
-        // Force background integration
-        const user = await ensureFirebaseAuth();
-        if (user) {
+        const exists = await checkGroupCodeExists(code);
+        if (exists) {
+          localStorage.setItem("condobill_group_code", code);
+          const user = await ensureFirebaseAuth();
           setMessage({
             text: `¡Código de grupo "${code}" conectado con éxito! Este dispositivo se mantendrá sincronizado automáticamente en segundo plano.`,
             type: "success"
           });
         } else {
-          setMessage({
-            text: `¡Código de grupo guardado de manera local!`,
-            type: "success"
-          });
+          const createConfirm = window.confirm(
+            `El código de grupo "${code}" NO está registrado todavía en el sistema.\n\n` +
+            `¿Deseas CREAR este nuevo grupo en la nube para que otros dispositivos puedan sincronizarse usando el mismo código?`
+          );
+          if (createConfirm) {
+            await createGroupCodeInCloud(code);
+            localStorage.setItem("condobill_group_code", code);
+            const user = await ensureFirebaseAuth();
+            setMessage({
+              text: `¡Nuevo grupo "${code}" creado e iniciado con éxito! Todo listo para sincronizar.`,
+              type: "success"
+            });
+          } else {
+            setMessage({
+              text: `El código de grupo ingresado no existe. Elige un código existente o acepta crear uno nuevo.`,
+              type: "error"
+            });
+          }
         }
       } else {
         localStorage.removeItem("condobill_group_code");
@@ -72,7 +86,7 @@ export default function GroupSyncModal({ onClose, onReload }: GroupSyncModalProp
   };
 
   const handlePullFromGroup = async () => {
-    const code = groupCode.trim();
+    const code = groupCode.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, "");
     if (!code) {
       setMessage({ text: "Debe ingresar un código de grupo válido.", type: "error" });
       return;
@@ -85,6 +99,10 @@ export default function GroupSyncModal({ onClose, onReload }: GroupSyncModalProp
     setLoading(true);
     setMessage(null);
     try {
+      const exists = await checkGroupCodeExists(code);
+      if (!exists) {
+        throw new Error(`El código de grupo "${code}" no existe en el sistema. Debes ingresar un grupo ya existente o crearlo primero.`);
+      }
       localStorage.setItem("condobill_group_code", code);
       const user = await ensureFirebaseAuth();
       if (!user) {
@@ -109,7 +127,7 @@ export default function GroupSyncModal({ onClose, onReload }: GroupSyncModalProp
   };
 
   const handlePushToGroup = async () => {
-    const code = groupCode.trim();
+    const code = groupCode.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, "");
     if (!code) {
       setMessage({ text: "Debe ingresar un código de grupo válido.", type: "error" });
       return;
@@ -122,6 +140,17 @@ export default function GroupSyncModal({ onClose, onReload }: GroupSyncModalProp
     setLoading(true);
     setMessage(null);
     try {
+      const exists = await checkGroupCodeExists(code);
+      if (!exists) {
+        const createConfirm = window.confirm(
+          `El código de grupo "${code}" no existe todavía en el sistema.\n\n¿Deseas CREAR este nuevo grupo en la nube para poder respaldar y compartir tus datos con otros?`
+        );
+        if (createConfirm) {
+          await createGroupCodeInCloud(code);
+        } else {
+          throw new Error("El respaldo fue cancelado porque el código de grupo no existe.");
+        }
+      }
       localStorage.setItem("condobill_group_code", code);
       const user = await ensureFirebaseAuth();
       if (!user) {

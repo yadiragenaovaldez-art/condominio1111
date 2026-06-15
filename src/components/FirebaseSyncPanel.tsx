@@ -27,7 +27,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword
 } from "firebase/auth";
-import { uploadToCloud, downloadFromCloud, getLocalStats, SyncStats } from "../lib/firebaseSync";
+import { uploadToCloud, downloadFromCloud, getLocalStats, SyncStats, checkGroupCodeExists, createGroupCodeInCloud } from "../lib/firebaseSync";
 
 interface FirebaseSyncPanelProps {
   onSyncComplete: () => void;
@@ -61,7 +61,7 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
     setAutoCloudSync(enabled);
   };
 
-  const handleSaveGroupCode = () => {
+  const handleSaveGroupCode = async () => {
     const cleanCode = groupCodeInput.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, "");
     if (cleanCode === "") {
       localStorage.removeItem("condobill_group_code");
@@ -70,13 +70,46 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
       refreshStats();
       onSyncComplete();
       alert("Se eliminó el código de grupo. Se restauró tu espacio privado.");
-    } else {
-      localStorage.setItem("condobill_group_code", cleanCode);
-      setGroupCode(cleanCode);
-      setGroupCodeInput(cleanCode);
-      refreshStats();
-      onSyncComplete();
-      alert(`¡Código de Grupo activado: "${cleanCode}"! Todos tus datos sincronizados ahora se compartirán con cualquiera que introduzca este mismo código.`);
+      return;
+    }
+
+    setSyncing(true);
+    setErrorMsg("");
+    setSyncStatus('idle');
+
+    try {
+      const exists = await checkGroupCodeExists(cleanCode);
+      if (exists) {
+        localStorage.setItem("condobill_group_code", cleanCode);
+        setGroupCode(cleanCode);
+        setGroupCodeInput(cleanCode);
+        refreshStats();
+        onSyncComplete();
+        alert(`¡Código de Grupo encontrado y conectado: "${cleanCode}"! Todos tus datos sincronizados ahora se compartirán con cualquiera que introduzca este mismo código.`);
+      } else {
+        const createConfirm = window.confirm(
+          `El código de grupo "${cleanCode}" NO existe todavía en el sistema.\n\n` +
+          `¿Deseas CREAR este nuevo grupo en la nube para que otros dispositivos puedan usarlo y sincronizarse con este dispositivo?`
+        );
+        if (createConfirm) {
+          await createGroupCodeInCloud(cleanCode);
+          localStorage.setItem("condobill_group_code", cleanCode);
+          setGroupCode(cleanCode);
+          setGroupCodeInput(cleanCode);
+          refreshStats();
+          onSyncComplete();
+          alert(`¡Nuevo Grupo creado e iniciado con éxito bajo el código: "${cleanCode}"! Ahora puedes subir tus cambios e invitar a otros.`);
+        } else {
+          setErrorMsg("La conexión falló: El código de grupo provisto no existe.");
+          setSyncStatus('error');
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err?.message || "Ocurrió un error al validar el código de grupo.");
+      setSyncStatus('error');
+    } finally {
+      setSyncing(false);
     }
   };
 

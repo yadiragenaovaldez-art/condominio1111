@@ -1,6 +1,6 @@
 import { db, handleFirestoreError, OperationType, auth } from './firebase';
 import { signInAnonymously } from 'firebase/auth';
-import { collection, doc, writeBatch, getDocs, setDoc } from 'firebase/firestore';
+import { collection, doc, writeBatch, getDocs, setDoc, getDoc } from 'firebase/firestore';
 import { storage } from './storage';
 
 // Maps our LocalStorage key identifiers to their corresponding subcollection paths under /users/{userId}/...
@@ -213,3 +213,51 @@ export async function downloadFromCloud(userId: string): Promise<SyncStats> {
     cortes: (downloadedMap['condobill_cortes'] || []).length
   };
 }
+
+/**
+ * Checks if a group code exists in Firestore.
+ */
+export async function checkGroupCodeExists(groupCodeToTest: string): Promise<boolean> {
+  const code = groupCodeToTest.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, "");
+  if (!code) return false;
+  
+  // Ensure authenticated
+  await ensureFirebaseAuth();
+  
+  try {
+    const docRef = doc(db, "shared_namespaces", code, "info", "meta");
+    const docSnap = await getDoc(docRef);
+    return docSnap.exists();
+  } catch (error) {
+    console.error("[FirebaseSync] Error checking group code existence:", error);
+    return false;
+  }
+}
+
+/**
+ * Creates a new group code registry in Firestore under shared_namespaces/{code}/info/meta.
+ */
+export async function createGroupCodeInCloud(groupCodeToCreate: string): Promise<void> {
+  const code = groupCodeToCreate.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, "");
+  if (!code) {
+    throw new Error("El código del grupo no puede estar vacío.");
+  }
+  
+  // Ensure authenticated
+  await ensureFirebaseAuth();
+  
+  try {
+    const docRef = doc(db, "shared_namespaces", code, "info", "meta");
+    await setDoc(docRef, {
+      id: "meta",
+      exists: true,
+      code: code,
+      createdAt: new Date().toISOString(),
+      creatorUid: auth.currentUser?.uid || "anonymous"
+    });
+    console.log(`[FirebaseSync] Código de grupo "${code}" registrado con éxito.`);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `shared_namespaces/${code}/info/meta`);
+  }
+}
+
