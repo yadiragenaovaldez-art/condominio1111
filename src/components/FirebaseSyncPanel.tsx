@@ -15,7 +15,8 @@ import {
   Mail,
   Lock,
   UserPlus,
-  LogIn
+  LogIn,
+  Users
 } from "lucide-react";
 import { auth, googleProvider } from "../lib/firebase";
 import { 
@@ -50,7 +51,7 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
   const [groupCodeInput, setGroupCodeInput] = useState(groupCode);
 
   // Email and password form state
-  const [loginMethod, setLoginMethod] = useState<'google' | 'email'>('email'); // Default to email to help them instantly!
+  const [loginMethod, setLoginMethod] = useState<'google' | 'email' | 'group'>('group'); // Default to group for super easy access!
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isRegistering, setIsRegistering] = useState(false);
@@ -284,7 +285,23 @@ Para activarlo de inmediato, sigue estos sencillos pasos:
       {!firebaseUser ? (
         <div className="space-y-5">
           {/* Custom Tabs Selector */}
-          <div className="flex bg-slate-200/60 p-1 rounded-2xl">
+          <div className="flex flex-col sm:flex-row bg-slate-200/60 p-1 rounded-2xl gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setLoginMethod('group');
+                setErrorMsg("");
+                setSyncStatus('idle');
+              }}
+              className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all select-none cursor-pointer ${
+                loginMethod === 'group'
+                  ? "bg-white text-blue-700 shadow-md"
+                  : "text-slate-500 hover:text-slate-750"
+              }`}
+            >
+              <Users size={13} className="text-blue-600" />
+              (Sincronizar con código)
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -295,11 +312,11 @@ Para activarlo de inmediato, sigue estos sencillos pasos:
               className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all select-none cursor-pointer ${
                 loginMethod === 'email'
                   ? "bg-white text-blue-700 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                  : "text-slate-500 hover:text-slate-750"
               }`}
             >
               <Mail size={13} />
-              Correo y Contraseña (Fácil/Directo)
+              Correo y Contraseña
             </button>
             <button
               type="button"
@@ -311,7 +328,7 @@ Para activarlo de inmediato, sigue estos sencillos pasos:
               className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all select-none cursor-pointer ${
                 loginMethod === 'google'
                   ? "bg-white text-blue-700 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                  : "text-slate-500 hover:text-slate-750"
               }`}
             >
               <Chrome size={13} />
@@ -319,7 +336,122 @@ Para activarlo de inmediato, sigue estos sencillos pasos:
             </button>
           </div>
 
-          {loginMethod === 'email' ? (
+          {loginMethod === 'group' ? (
+            <div className="space-y-4 animate-in fade-in">
+              <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                <strong className="text-blue-600 font-extrabold uppercase text-[9px] tracking-wider block mb-0.5">Sincronización por Código de Grupo:</strong>
+                Sincronice sus datos cargados localmente usando un código compartido. Esto permite que todas las computadoras con este código vean y manipulen los mismos datos de condominio en tiempo real.
+              </p>
+
+              <div className="space-y-3.5">
+                <div>
+                  <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5 text-left">
+                    Código de Grupo Ya Creado
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1 flex items-center">
+                      <Users size={14} className="absolute left-4 text-slate-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={groupCodeInput}
+                        onChange={(e) => setGroupCodeInput(e.target.value.replace(/[^a-zA-Z0-9_\-]/g, ""))}
+                        placeholder="Ejemplo: condominio_san_miguel"
+                        className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-4 py-3 text-xs text-slate-700 placeholder-slate-350 font-bold focus:outline-none focus:border-blue-500 shadow-sm"
+                      />
+                    </div>
+                    
+                    <button
+                      type="button"
+                      onClick={handleSaveGroupCode}
+                      className="px-5 py-3 bg-blue-600 hover:bg-blue-700 hover:scale-[1.01] text-white rounded-2xl text-[10px] font-black uppercase tracking-wider shrink-0 transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-1.5"
+                    >
+                      {groupCode ? "Actualizar" : "Conectar"}
+                    </button>
+                  </div>
+                </div>
+
+                {groupCode && (
+                  <div className="p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl space-y-3.5 text-left animate-in slide-in-from-top-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-emerald-800 uppercase tracking-widest flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Código de Grupo Activo: "{groupCode}"
+                      </span>
+                      
+                      <button
+                        type="button"
+                        onClick={handleDisableGroupCode}
+                        className="text-[9px] font-extrabold text-rose-500 hover:text-rose-700 uppercase tracking-tight"
+                      >
+                        Desconectar
+                      </button>
+                    </div>
+
+                    <p className="text-[9px] text-slate-400 font-extrabold uppercase leading-normal tracking-wide">
+                      OPERACIONES DE GRUPO:
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-3.5">
+                      {/* Pull Group Changes */}
+                      <button
+                        type="button"
+                        disabled={syncing}
+                        onClick={async () => {
+                          setSyncing(true);
+                          setSyncStatus('idle');
+                          setErrorMsg("");
+                          try {
+                            const stats = await downloadFromCloud("grupo");
+                            setSyncStatus('success');
+                            refreshStats();
+                            onSyncComplete();
+                            alert(`¡Sincronización completada con éxito! Se descargaron ${stats.condos} condominios y ${stats.transactions} transacciones.`);
+                          } catch (err: any) {
+                            console.error(err);
+                            setErrorMsg(err?.message || "Error al bajar datos del grupo.");
+                            setSyncStatus('error');
+                          } finally {
+                            setSyncing(false);
+                          }
+                        }}
+                        className="py-3 px-4 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 shadow-sm"
+                      >
+                        <CloudDownload size={14} className="text-blue-500" />
+                        Bajar de la Nube
+                      </button>
+
+                      {/* Push Group Changes */}
+                      <button
+                        type="button"
+                        disabled={syncing}
+                        onClick={async () => {
+                          setSyncing(true);
+                          setSyncStatus('idle');
+                          setErrorMsg("");
+                          try {
+                            await uploadToCloud("grupo");
+                            setSyncStatus('success');
+                            refreshStats();
+                            alert("¡Sus cambios locales fueron sincronizados y respaldados con el grupo!");
+                          } catch (err: any) {
+                            console.error(err);
+                            setErrorMsg(err?.message || "Error al subir datos del grupo.");
+                            setSyncStatus('error');
+                          } finally {
+                            setSyncing(false);
+                          }
+                        }}
+                        className="py-3 px-4 bg-blue-650 hover:bg-blue-700 text-white rounded-xl text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 shadow-sm"
+                      >
+                        <CloudUpload size={14} className={syncing ? "animate-spin" : ""} />
+                        Subir Cambios
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : loginMethod === 'email' ? (
             <form onSubmit={handleEmailAuth} className="space-y-4">
               <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
                 <strong className="text-blue-600 font-extrabold uppercase text-[9px] tracking-wider block mb-0.5">Súper fácil - Sin autorizar dominios:</strong>
