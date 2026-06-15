@@ -19,12 +19,17 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow;
 
 function createWindow() {
+  const appIconPath = app.isPackaged 
+    ? path.join(__dirname, 'dist', 'icon.png')
+    : path.join(__dirname, 'public', 'icon.png');
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 1024,
     minHeight: 768,
     title: "CONDOBill - Facturación de Condominios y Caja",
+    icon: appIconPath,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
