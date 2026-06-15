@@ -1359,24 +1359,32 @@ export default function App() {
             {/* Cloud Sync Status/Trigger Pill Button */}
             <button
               onClick={() => {
-                setSettingsSubTab("security");
-                setActiveTab("settings");
+                if (currentUser && !currentUser.permissions.includes("settings")) {
+                  setShowGroupSyncModal(true);
+                } else {
+                  setSettingsSubTab("security");
+                  setActiveTab("settings");
+                }
               }}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all hover:scale-[1.02] cursor-pointer shadow-sm select-none ${
                 firebaseUser
                   ? "bg-emerald-50 border-emerald-200/60 text-emerald-800 hover:bg-emerald-100/50"
                   : "bg-blue-50 border-blue-200/60 text-blue-800 hover:bg-blue-100/50"
               }`}
-              title={firebaseUser ? `Conectado como ${firebaseUser.email}. Haz clic para gestionar la nube.` : "Haz clic para sincronizar y conectar con Firebase"}
+              title={firebaseUser ? `Conectado como ${firebaseUser.email || "Usuario de Grupo"}. Haz clic para gestionar la nube.` : "Haz clic para sincronizar y conectar con Firebase"}
             >
               <div className="relative flex items-center">
                 <Cloud size={15} className={firebaseUser ? "text-emerald-600" : "text-blue-600"} />
-                {firebaseUser && (
+                {(firebaseUser || localStorage.getItem("condobill_group_code")) && (
                   <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 )}
               </div>
               <span className="text-[9px] font-black uppercase tracking-widest leading-none">
-                {firebaseUser ? "Nube Activa" : "Vincular Nube"}
+                {localStorage.getItem("condobill_group_code") 
+                  ? `Grupo: ${localStorage.getItem("condobill_group_code")}`
+                  : firebaseUser 
+                  ? "Nube Activa" 
+                  : "Sincronizar Grupo"}
               </span>
             </button>
           </div>
