@@ -1,5 +1,6 @@
-import { db, handleFirestoreError, OperationType } from './firebase';
-import { collection, doc, writeBatch, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType, auth } from './firebase';
+import { signInAnonymously } from 'firebase/auth';
+import { collection, doc, writeBatch, getDocs, setDoc } from 'firebase/firestore';
 import { storage } from './storage';
 
 // Maps our LocalStorage key identifiers to their corresponding subcollection paths under /users/{userId}/...
@@ -59,6 +60,33 @@ export interface FirestoreRoot {
 }
 
 /**
+ * Ensures a valid Firebase Authentication session exists, signing in
+ * anonymously in the background if a Group Code is active but no email-user is logged in.
+ */
+export async function ensureFirebaseAuth(): Promise<any> {
+  if (auth.currentUser) {
+    return auth.currentUser;
+  }
+  const groupCode = (localStorage.getItem("condobill_group_code") || "").trim();
+  if (groupCode !== "") {
+    try {
+      const userCred = await signInAnonymously(auth);
+      console.log("[Firebase] Autenticación anónima exitosa con UID:", userCred.user.uid);
+      return userCred.user;
+    } catch (error: any) {
+      if (error && error.code === "auth/operation-not-allowed") {
+        throw new Error(
+          "El proveedor de Autenticación Anónima no está habilitado en Firebase. " +
+          "Por favor, configure Firebase Console: sección de Autenticación > Métodos de inicio de sesión > Habilitar proveedor 'Anónimo'."
+        );
+      }
+      throw error;
+    }
+  }
+  return null;
+}
+
+/**
  * Returns the firebase path source of truth (private UID vs Shared Group Code)
  */
 export function getSyncRoot(userId: string): FirestoreRoot {
@@ -73,8 +101,10 @@ export function getSyncRoot(userId: string): FirestoreRoot {
  * Upload active local storage data arrays to Firestore under the authenticated user's private space or group space.
  */
 export async function uploadToCloud(userId: string): Promise<void> {
+  await ensureFirebaseAuth();
+  const activeUserId = auth.currentUser?.uid || userId;
   const localData = storage.exportAllData();
-  const root = getSyncRoot(userId);
+  const root = getSyncRoot(activeUserId);
 
   for (const [localStorageKey, syncMeta] of Object.entries(SYNC_MAP)) {
     const rawData = localData[localStorageKey];
@@ -140,8 +170,10 @@ export async function uploadToCloud(userId: string): Promise<void> {
  * Download documents from Firestore and replace the current LocalStorage database.
  */
 export async function downloadFromCloud(userId: string): Promise<SyncStats> {
+  await ensureFirebaseAuth();
+  const activeUserId = auth.currentUser?.uid || userId;
   const downloadedMap: Record<string, any> = {};
-  const root = getSyncRoot(userId);
+  const root = getSyncRoot(activeUserId);
 
   for (const [localStorageKey, syncMeta] of Object.entries(SYNC_MAP)) {
     const path = `${root.baseCol}/${root.baseId}/${syncMeta.colName}`;

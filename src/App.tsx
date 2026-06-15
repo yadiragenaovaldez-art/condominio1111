@@ -65,6 +65,7 @@ import {
   Laptop,
   Sparkles,
   Cloud,
+  RefreshCw,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -107,8 +108,9 @@ import { PersonalView } from "./components/PersonalView";
 import DailyReportView from "./components/DailyReportView";
 import FirebaseSyncPanel from "./components/FirebaseSyncPanel";
 import { auth, db } from "./lib/firebase";
-import { uploadToCloud } from "./lib/firebaseSync";
+import { uploadToCloud, ensureFirebaseAuth, downloadFromCloud, getLocalStats } from "./lib/firebaseSync";
 import { PublicOwnerRegistration } from "./components/PublicOwnerRegistration";
+import GroupSyncModal from "./components/GroupSyncModal";
 import { onSnapshot, collection, doc, setDoc } from "firebase/firestore";
 
 type AppTab =
@@ -247,6 +249,7 @@ export default function App() {
   }, []);
 
   const [activeTab, setActiveTab] = useState<AppTab>("dashboard");
+  const [showGroupSyncModal, setShowGroupSyncModal] = useState(false);
   const [condos, setCondos] = useState<Condominio[]>(() => {
     const loaded = storage.getCondos();
     if (loaded.length === 0) {
@@ -599,12 +602,21 @@ export default function App() {
     const isAutoSyncEnabled = rawSyncSetting === null ? true : rawSyncSetting === "true";
     if (!isAutoSyncEnabled) return;
 
-    const firebaseUser = auth.currentUser;
-    if (!firebaseUser) return;
+    const groupCode = (localStorage.getItem("condobill_group_code") || "").trim();
+    const hasFirebaseUser = auth.currentUser !== null;
+    
+    if (!hasFirebaseUser && groupCode === "") return;
 
     const timer = setTimeout(async () => {
       try {
-        await uploadToCloud(firebaseUser.uid);
+        let activeUid = auth.currentUser?.uid;
+        if (!activeUid && groupCode !== "") {
+          const user = await ensureFirebaseAuth();
+          activeUid = user?.uid;
+        }
+        if (!activeUid) return;
+
+        await uploadToCloud(activeUid);
         console.log("[Firebase] Respaldo automático en segundo plano completado con éxito.");
       } catch (err) {
         console.warn("[Firebase] Error al respaldar automáticamente en la nube:", err);
@@ -1174,6 +1186,37 @@ export default function App() {
               )}
             </div>
           )}
+
+          {/* Grupo Compartido Sync Widget for All Users */}
+          <div className="mt-6 pt-4 border-t border-slate-900/50 px-2 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">
+                GRUPO MULTI-USUARIO
+              </span>
+              {localStorage.getItem("condobill_group_code") ? (
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Sincronizado por código de grupo activo" />
+              ) : (
+                <span className="w-2 h-2 rounded-full bg-slate-705 shadow" title="Sin código activo (Modo local)" />
+              )}
+            </div>
+            
+            <button
+              onClick={() => setShowGroupSyncModal(true)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-900 hover:border-blue-500 hover:bg-black text-xs font-bold text-slate-300 hover:text-white transition-all text-left group"
+              title="Ajustes de Sincronización de Grupo"
+              id="sidebar-group-sync-btn"
+            >
+              <div className="flex items-center gap-2 truncate">
+                <Users size={16} className="text-blue-500 group-hover:scale-110 transition-transform" />
+                <span className="truncate text-[11px] font-extrabold uppercase">
+                  {localStorage.getItem("condobill_group_code") 
+                    ? `Grupo: ${localStorage.getItem("condobill_group_code")}`
+                    : "Sincronizar Grupo..."}
+                </span>
+              </div>
+              <RefreshCw size={12} className="text-slate-500 group-hover:rotate-180 transition-transform duration-500 shrink-0" />
+            </button>
+          </div>
         </nav>
 
         {/* Condo Selector at Bottom */}
@@ -1543,6 +1586,14 @@ export default function App() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* MODAL DE SINCRO GRUPO COMPARTIDO MULTI-USUARIO (Soporte local sin correo) */}
+      {showGroupSyncModal && (
+        <GroupSyncModal
+          onClose={() => setShowGroupSyncModal(false)}
+          onReload={handleReloadFromLocalStorage}
+        />
+      )}
     </div>
   );
 }
