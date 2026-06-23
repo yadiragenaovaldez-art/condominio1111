@@ -61,29 +61,25 @@ export interface FirestoreRoot {
 
 /**
  * Ensures a valid Firebase Authentication session exists, signing in
- * anonymously in the background if a Group Code is active but no email-user is logged in.
+ * anonymously in the background if no user is currently logged in.
  */
 export async function ensureFirebaseAuth(): Promise<any> {
   if (auth.currentUser) {
     return auth.currentUser;
   }
-  const groupCode = (localStorage.getItem("condobill_group_code") || "").trim();
-  if (groupCode !== "") {
-    try {
-      const userCred = await signInAnonymously(auth);
-      console.log("[Firebase] Autenticación anónima exitosa con UID:", userCred.user.uid);
-      return userCred.user;
-    } catch (error: any) {
-      if (error && error.code === "auth/operation-not-allowed") {
-        throw new Error(
-          "El proveedor de Autenticación Anónima no está habilitado en Firebase. " +
-          "Por favor, configure Firebase Console: sección de Autenticación > Métodos de inicio de sesión > Habilitar proveedor 'Anónimo'."
-        );
-      }
-      throw error;
+  try {
+    const userCred = await signInAnonymously(auth);
+    console.log("[Firebase] Autenticación anónima exitosa con UID:", userCred.user.uid);
+    return userCred.user;
+  } catch (error: any) {
+    if (error && error.code === "auth/operation-not-allowed") {
+      throw new Error(
+        "El proveedor de Autenticación Anónima no está habilitado en Firebase. " +
+        "Por favor, configure Firebase Console: sección de Autenticación > Métodos de inicio de sesión > Habilitar proveedor 'Anónimo'."
+      );
     }
+    throw error;
   }
-  return null;
 }
 
 /**

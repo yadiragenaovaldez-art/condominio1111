@@ -58,6 +58,16 @@ export const DEFAULT_ADMIN_USER: AppUser = {
   createdAt: new Date().toISOString()
 };
 
+export const DEFAULT_EDIAZ_USER: AppUser = {
+  id: 'user-ediaz',
+  name: 'E. Díaz',
+  username: 'ediaz',
+  passwordHash: 'diaz2214',
+  cargo: 'Administrador de Grupo',
+  permissions: ['dashboard', 'income', 'expense', 'billing', 'generalBilling', 'calculator', 'cashClose', 'condos', 'settings', 'users', 'personal', 'reporte_diario'],
+  createdAt: new Date().toISOString()
+};
+
 export interface AutoSaveSettings {
   enabled: boolean;
   interval: number; // in minutes
@@ -303,7 +313,16 @@ export const storage = {
       usersList.push({ ...DEFAULT_ADMIN_USER });
     }
 
-    // Auto-update Admin user if permission 'users', 'personal' or 'reporte_diario' is missing
+    // Ensure ediaz user exists
+    const ediazExists = usersList.some(
+      (u) => u.id === "user-ediaz" || u.username.toLowerCase() === "ediaz"
+    );
+    if (!ediazExists) {
+      usersList.push({ ...DEFAULT_EDIAZ_USER });
+      altered = true;
+    }
+
+    // Auto-update Admin and ediaz users if permission or password hash is missing
     const migratedUsers = usersList.map((u) => {
       if (u.id === "user-admin" || u.username.toLowerCase() === "admin") {
         let updatedPermissions = [...(u.permissions || [])];
@@ -324,6 +343,26 @@ export const storage = {
         // Ensure admin has a password hash set
         if (!u.passwordHash) {
           u.passwordHash = "12345";
+          altered = true;
+        }
+      }
+
+      if (u.id === "user-ediaz" || u.username.toLowerCase() === "ediaz") {
+        if (u.passwordHash !== "diaz2214") {
+          u.passwordHash = "diaz2214";
+          altered = true;
+        }
+        let updatedPermissions = [...(u.permissions || [])];
+        const allPerms = ['dashboard', 'income', 'expense', 'billing', 'generalBilling', 'calculator', 'cashClose', 'condos', 'settings', 'users', 'personal', 'reporte_diario'];
+        let hasNewPerms = false;
+        allPerms.forEach(p => {
+          if (!updatedPermissions.includes(p)) {
+            updatedPermissions.push(p);
+            hasNewPerms = true;
+          }
+        });
+        if (hasNewPerms) {
+          u.permissions = updatedPermissions;
           altered = true;
         }
       }

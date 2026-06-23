@@ -174,6 +174,13 @@ O si prefieres Google Auth, autorízalo así:
       setSyncStatus('error');
       return;
     }
+
+    const cleanEmail = email.trim();
+    if (!cleanEmail.includes("@") || cleanEmail.length < 5) {
+      setErrorMsg("Por favor ingresa un correo electrónico válido (debe contener '@' y un dominio válido).");
+      setSyncStatus('error');
+      return;
+    }
     
     setErrorMsg("");
     setSyncStatus('idle');
@@ -181,9 +188,9 @@ O si prefieres Google Auth, autorízalo así:
 
     try {
       if (isRegistering) {
-        await createUserWithEmailAndPassword(auth, email.trim(), password);
+        await createUserWithEmailAndPassword(auth, cleanEmail, password);
       } else {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
+        await signInWithEmailAndPassword(auth, cleanEmail, password);
       }
     } catch (err: any) {
       console.error("[Firebase Email Auth Error]", err);

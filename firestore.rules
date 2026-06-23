@@ -24,6 +24,11 @@ service cloud.firestore {
 
     // --- RECIÉN IMPLEMENTADO: Código de Grupo Compartido (Multi-usuario) ---
 
+    // Permitir lectura a visitantes públicos para verificar la existencia del grupo
+    match /shared_namespaces/{namespaceId}/info/meta {
+      allow read: if true;
+    }
+
     // Permitir lectura a visitantes públicos para condominios de grupo
     match /shared_namespaces/{namespaceId}/condos/{docId} {
       allow read: if true;

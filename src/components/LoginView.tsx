@@ -54,6 +54,18 @@ export default function LoginView({ onLogin }: LoginViewProps) {
         emailToAuth = matchedUser.username;
       }
 
+      const finalIsEmail = emailToAuth.includes("@") && emailToAuth.length > 3;
+
+      if (!finalIsEmail) {
+        if (matchedUser && matchedUser.passwordHash !== password) {
+          setError("Contraseña incorrecta. Por favor verifique e intente nuevamente.");
+        } else {
+          setError("El usuario ingresado no existe en el sistema ni es un correo electrónico de Firebase válido.");
+        }
+        setLoading(false);
+        return;
+      }
+
       // Realizar la autenticación real en Firebase
       const userCredential = await signInWithEmailAndPassword(auth, emailToAuth, password);
       const fbUser = userCredential.user;
