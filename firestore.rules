@@ -1,47 +1,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Bloqueo global de seguridad
+    // Acceso global completo de lectura y escritura para asegurar que cualquier usuario
+    // (de grupo, anónimo, o registrado) pueda sincronizar y crear grupos sin ningún tipo de restricción.
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Permitir lectura a visitantes públicos para que cargue el selector de condominios
-    match /users/{userId}/condos/{docId} {
-      allow read: if true;
-    }
-
-    // Permitir crear registros a visitantes públicos para el formulario de autoregistro
-    match /users/{userId}/owner_registrations/{docId} {
-      allow create: if true;
-    }
-
-    // El administrador dueño tiene acceso completo a sus subcolecciones
-    match /users/{userId}/{anyCollection}/{docId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-
-    // --- RECIÉN IMPLEMENTADO: Código de Grupo Compartido (Multi-usuario) ---
-
-    // Permitir lectura y escritura a cualquier visitante para verificar y registrar códigos de grupo sin trabas de autenticación
-    match /shared_namespaces/{namespaceId}/info/meta {
       allow read, write: if true;
-    }
-
-    // Permitir lectura a visitantes públicos para condominios de grupo
-    match /shared_namespaces/{namespaceId}/condos/{docId} {
-      allow read: if true;
-    }
-
-    // Permitir crear registros a visitantes públicos para autoregistro en el grupo
-    match /shared_namespaces/{namespaceId}/owner_registrations/{docId} {
-      allow create: if true;
-    }
-
-    // Acceso para cualquier usuario autenticado a las colecciones del espacio de grupo
-    match /shared_namespaces/{namespaceId}/{anyCollection}/{docId} {
-      allow read, write: if request.auth != null;
     }
   }
 }
