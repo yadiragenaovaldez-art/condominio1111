@@ -9,7 +9,6 @@ import {
   AlertCircle, 
   Database, 
   User,
-  Chrome,
   Share2,
   Copy,
   Mail,
@@ -19,9 +18,8 @@ import {
   Users,
   PlusCircle
 } from "lucide-react";
-import { auth, googleProvider } from "../lib/firebase";
+import { auth } from "../lib/firebase";
 import { 
-  signInWithPopup, 
   signOut as fbSignOut, 
   onAuthStateChanged, 
   User as FirebaseUser,
@@ -53,7 +51,7 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
   const [groupAction, setGroupAction] = useState<'connect' | 'create'>('connect');
 
   // Email and password form state
-  const [loginMethod, setLoginMethod] = useState<'google' | 'email' | 'group'>('group'); // Default to group for super easy access!
+  const [loginMethod, setLoginMethod] = useState<'email' | 'group'>('group'); // Default to group for super easy access!
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isRegistering, setIsRegistering] = useState(false);
@@ -174,35 +172,6 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
 
   const refreshStats = () => {
     setLocalStats(getLocalStats());
-  };
-
-  const handleSignIn = async () => {
-    setErrorMsg("");
-    setSyncStatus('idle');
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (err: any) {
-      console.error("[Firebase Signin Error]", err);
-      const isDomainError = 
-        err.code === "auth/unauthorized-domain" || 
-        (err.message && err.message.includes("unauthorized-domain")) ||
-        (err.message && err.message.includes("unauthorized"));
-
-      if (isDomainError) {
-        const currentHost = typeof window !== "undefined" ? window.location.hostname : "";
-        setErrorMsg(`⚠️ DOMINIO NO AUTORIZADO: Tu aplicación Firebase aún no sabe que este entorno de vista previa es seguro.
-👉 SOLUCIÓN FÁCIL: Usa la pestaña "Correo y Contraseña" al lado para conectarte de inmediato SIN configurar nada en Firebase Console.
-
-O si prefieres Google Auth, autorízalo así:
-1. Ve a tu Firebase Console.
-2. Entra a 'Authentication' > pestaña 'Settings' > sección 'Authorized domains' (Dominios autorizados).
-3. Haz clic en 'Add domain' e ingresa: ${currentHost}
-4. Guarda los cambios y vuelve a intentar.`);
-      } else {
-        setErrorMsg("No se pudo iniciar sesión con Google: " + (err.message || err.code || "Error desconocido"));
-      }
-      setSyncStatus('error');
-    }
   };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
@@ -396,22 +365,6 @@ Para activarlo de inmediato, sigue estos sencillos pasos:
               <Mail size={13} />
               Correo y Contraseña
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setLoginMethod('google');
-                setErrorMsg("");
-                setSyncStatus('idle');
-              }}
-              className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all select-none cursor-pointer ${
-                loginMethod === 'google'
-                  ? "bg-white text-blue-700 shadow-sm"
-                  : "text-slate-500 hover:text-slate-750"
-              }`}
-            >
-              <Chrome size={13} />
-              Google Sign-In
-            </button>
           </div>
 
           {loginMethod === 'group' ? (
@@ -581,7 +534,7 @@ Para activarlo de inmediato, sigue estos sencillos pasos:
                 )}
               </div>
             </div>
-          ) : loginMethod === 'email' ? (
+          ) : (
             <form onSubmit={handleEmailAuth} className="space-y-4">
               <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
                 <strong className="text-blue-600 font-extrabold uppercase text-[9px] tracking-wider block mb-0.5">Súper fácil - Sin autorizar dominios:</strong>
@@ -652,21 +605,6 @@ Para activarlo de inmediato, sigue estos sencillos pasos:
                 {isRegistering ? "Registrar usuario en la Nube" : "Iniciar Sesión en la Nube"}
               </button>
             </form>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
-                Si ya configuraste y agregaste el dominio de tu sistema condominial en Firebase Console, puedes usar un clic con tu cuenta de Google.
-              </p>
-
-              <button
-                type="button"
-                onClick={handleSignIn}
-                className="w-full py-4 px-6 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all hover:scale-[1.01] cursor-pointer shadow-lg active:scale-95"
-              >
-                <Chrome className="w-5 h-5 text-blue-400 shrink-0" />
-                Vincular cuenta con Google Sign-In
-              </button>
-            </div>
           )}
         </div>
       ) : (

@@ -54,6 +54,18 @@ export function getLocalStats(): SyncStats {
   };
 }
 
+export function getDeviceId(): string {
+  if (typeof window === "undefined") return "server";
+  let id = localStorage.getItem("condobill_device_id");
+  if (!id) {
+    id = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" 
+      ? crypto.randomUUID() 
+      : Math.random().toString(36).substring(2) + Date.now().toString(36);
+    localStorage.setItem("condobill_device_id", id);
+  }
+  return id;
+}
+
 export interface FirestoreRoot {
   baseCol: string;
   baseId: string;
@@ -159,6 +171,17 @@ export async function uploadToCloud(userId: string): Promise<void> {
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
     }
+  }
+
+  // 3. Update the sync metadata document to notify other devices
+  try {
+    const syncDocRef = doc(db, root.baseCol, root.baseId, "metadata", "sync");
+    await setDoc(syncDocRef, {
+      lastUpdated: Date.now(),
+      updatedBy: getDeviceId()
+    });
+  } catch (error) {
+    console.warn("[Firebase] No se pudo guardar el metadato de sincronización en la nube:", error);
   }
 }
 

@@ -150,6 +150,9 @@ export default function App() {
   const [settingsSubTab, setSettingsSubTab] = useState<"ticket" | "income" | "expense" | "security" | "brand">("ticket");
   const [processedCount, setProcessedCount] = useState(0);
 
+  const lastProcessedSyncTime = useRef<number>(Date.now());
+  const isDownloadingRef = useRef<boolean>(false);
+
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
 
@@ -245,6 +248,113 @@ export default function App() {
     return () => {
       authUnsubscribe();
       if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  // Listener en tiempo real para cambios hechos por otros dispositivos (grupo / usuario privado)
+  useEffect(() => {
+    let unsubscribeSync: (() => void) | null = null;
+
+    const setupSyncListener = async () => {
+      const groupCode = (localStorage.getItem("condobill_group_code") || "").trim();
+      let activeUid = auth.currentUser?.uid;
+
+      // Si no hay autenticación activa pero tenemos un código de grupo, la forzamos
+      if (!activeUid && groupCode !== "") {
+        try {
+          const user = await ensureFirebaseAuth();
+          activeUid = user?.uid;
+        } catch (e) {
+          console.warn("[Firebase] Error al asegurar autenticación para el listener:", e);
+        }
+      }
+
+      if (!activeUid && groupCode === "") {
+        return;
+      }
+
+      const baseCol = groupCode !== "" ? "shared_namespaces" : "users";
+      const baseId = groupCode !== "" ? groupCode : activeUid!;
+
+      const syncDocRef = doc(db, baseCol, baseId, "metadata", "sync");
+
+      // Generar o recuperar ID único de dispositivo
+      let deviceId = localStorage.getItem("condobill_device_id");
+      if (!deviceId) {
+        deviceId = crypto.randomUUID();
+        localStorage.setItem("condobill_device_id", deviceId);
+      }
+
+      console.log(`[Firebase] Conectando listener en tiempo real a: ${baseCol}/${baseId}`);
+
+      unsubscribeSync = onSnapshot(syncDocRef, async (snapshot) => {
+        if (!snapshot.exists()) return;
+        const data = snapshot.data();
+        if (!data) return;
+
+        const { lastUpdated, updatedBy } = data;
+
+        // Solo descargamos si el cambio proviene de otro dispositivo y es más reciente
+        if (updatedBy !== deviceId && lastUpdated > lastProcessedSyncTime.current) {
+          console.log(`[Firebase] ¡Sincronización en tiempo real recibida desde "${updatedBy}"! Descargando datos...`);
+          
+          lastProcessedSyncTime.current = lastUpdated;
+          isDownloadingRef.current = true;
+
+          try {
+            await downloadFromCloud(activeUid || "grupo");
+            handleReloadFromLocalStorage();
+            console.log("[Firebase] ¡Sincronización en tiempo real aplicada con éxito!");
+          } catch (err) {
+            console.error("[Firebase] Error en descarga automática en tiempo real:", err);
+          } finally {
+            // Sostener isDownloadingRef durante un breve periodo para que se completen las actualizaciones de estado en React
+            setTimeout(() => {
+              isDownloadingRef.current = false;
+            }, 150);
+          }
+        }
+      });
+    };
+
+    // Reactivar listener ante cambios de usuario
+    const authUnsubscribe = auth.onAuthStateChanged((user) => {
+      if (unsubscribeSync) {
+        unsubscribeSync();
+        unsubscribeSync = null;
+      }
+      setupSyncListener();
+    });
+
+    // Detectar cambios en pestañas/ventanas locales
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "condobill_group_code") {
+        if (unsubscribeSync) {
+          unsubscribeSync();
+          unsubscribeSync = null;
+        }
+        setupSyncListener();
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+
+    // Evento personalizado para reiniciar de inmediato el listener tras conexión exitosa
+    const handleSyncReset = () => {
+      if (unsubscribeSync) {
+        unsubscribeSync();
+        unsubscribeSync = null;
+      }
+      setupSyncListener();
+    };
+    window.addEventListener("condobill_sync_reset", handleSyncReset);
+
+    setupSyncListener();
+
+    return () => {
+      authUnsubscribe();
+      if (unsubscribeSync) unsubscribeSync();
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("condobill_sync_reset", handleSyncReset);
     };
   }, []);
 
@@ -524,6 +634,11 @@ export default function App() {
     setAreas(storage.getWorkAreas());
     setReceipts(storage.getReceipts());
     setUsers(storage.getUsers());
+
+    // Disparar evento personalizado para reiniciar el listener de sincronización en tiempo real con el nuevo namespace
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("condobill_sync_reset"));
+    }
   };
 
   // Save users state changes
@@ -598,6 +713,11 @@ export default function App() {
 
   // Sincronización automática de datos local-nube en segundo plano
   useEffect(() => {
+    if (isDownloadingRef.current) {
+      console.log("[Firebase] Omitiendo respaldo automático en segundo plano porque el cambio proviene de una sincronización entrante.");
+      return;
+    }
+
     const rawSyncSetting = localStorage.getItem("condobill_auto_cloud_sync");
     const isAutoSyncEnabled = rawSyncSetting === null ? true : rawSyncSetting === "true";
     if (!isAutoSyncEnabled) return;
