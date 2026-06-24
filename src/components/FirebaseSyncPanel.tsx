@@ -16,7 +16,8 @@ import {
   Lock,
   UserPlus,
   LogIn,
-  Users
+  Users,
+  PlusCircle
 } from "lucide-react";
 import { auth, googleProvider } from "../lib/firebase";
 import { 
@@ -49,6 +50,7 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
     return localStorage.getItem("condobill_group_code") || "";
   });
   const [groupCodeInput, setGroupCodeInput] = useState(groupCode);
+  const [groupAction, setGroupAction] = useState<'connect' | 'create'>('connect');
 
   // Email and password form state
   const [loginMethod, setLoginMethod] = useState<'google' | 'email' | 'group'>('group'); // Default to group for super easy access!
@@ -87,6 +89,13 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
         onSyncComplete();
         alert(`¡Código de Grupo encontrado y conectado: "${cleanCode}"! Todos tus datos sincronizados ahora se compartirán con cualquiera que introduzca este mismo código.`);
       } else {
+        if (!firebaseUser || !firebaseUser.email || firebaseUser.isAnonymous) {
+          setErrorMsg("La conexión falló: El código de grupo provisto no existe. Solo los usuarios que ingresen con su correo electrónico pueden crear nuevos grupos.");
+          setSyncStatus('error');
+          alert("El código de grupo ingresado no existe. Solo los usuarios que ingresen al sistema con su correo electrónico pueden crear nuevos grupos de sincronización.");
+          return;
+        }
+
         const createConfirm = window.confirm(
           `El código de grupo "${cleanCode}" NO existe todavía en el sistema.\n\n` +
           `¿Deseas CREAR este nuevo grupo en la nube para que otros dispositivos puedan usarlo y sincronizarse con este dispositivo?`
@@ -107,6 +116,50 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err?.message || "Ocurrió un error al validar el código de grupo.");
+      setSyncStatus('error');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    const cleanCode = groupCodeInput.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, "");
+    if (cleanCode === "") {
+      alert("Por favor ingresa un código de grupo válido.");
+      return;
+    }
+
+    if (!firebaseUser || !firebaseUser.email || firebaseUser.isAnonymous) {
+      const msg = "Acceso denegado: Solo los usuarios que ingresen al sistema con su correo electrónico pueden crear grupos de sincronización.";
+      setErrorMsg(msg);
+      setSyncStatus('error');
+      alert(msg);
+      return;
+    }
+
+    setSyncing(true);
+    setErrorMsg("");
+    setSyncStatus('idle');
+
+    try {
+      const exists = await checkGroupCodeExists(cleanCode);
+      if (exists) {
+        setErrorMsg(`La creación falló: El código de grupo "${cleanCode}" ya existe. Elige otro nombre o cámbiate a la opción "Conectar a un grupo".`);
+        setSyncStatus('error');
+        alert(`El grupo "${cleanCode}" ya existe. Elige un nombre de grupo diferente o conéctate al grupo existente.`);
+        return;
+      }
+
+      await createGroupCodeInCloud(cleanCode);
+      localStorage.setItem("condobill_group_code", cleanCode);
+      setGroupCode(cleanCode);
+      setGroupCodeInput(cleanCode);
+      refreshStats();
+      onSyncComplete();
+      alert(`¡Nuevo Grupo creado e iniciado con éxito bajo el código: "${cleanCode}"! Ahora puedes subir tus cambios e invitar a otros.`);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err?.message || "Ocurrió un error al crear el código de grupo.");
       setSyncStatus('error');
     } finally {
       setSyncing(false);
@@ -383,32 +436,99 @@ Para activarlo de inmediato, sigue estos sencillos pasos:
                 Sincronice sus datos cargados localmente usando un código compartido. Esto permite que todas las computadoras con este código vean y manipulen los mismos datos de condominio en tiempo real.
               </p>
 
+              {/* Selector de Acción de Grupo */}
+              <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGroupAction('connect');
+                    setErrorMsg("");
+                    setSyncStatus('idle');
+                  }}
+                  className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all select-none cursor-pointer ${
+                    groupAction === 'connect'
+                      ? "bg-white text-blue-700 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <Users size={12} />
+                  Conectar a Grupo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGroupAction('create');
+                    setErrorMsg("");
+                    setSyncStatus('idle');
+                  }}
+                  className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all select-none cursor-pointer ${
+                    groupAction === 'create'
+                      ? "bg-white text-blue-700 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <PlusCircle size={12} />
+                  Crear Nuevo Grupo
+                </button>
+              </div>
+
               <div className="space-y-3.5">
-                <div>
-                  <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5 text-left">
-                    Código de Grupo Ya Creado
-                  </label>
-                  <div className="flex gap-2">
-                    <div className="relative flex-1 flex items-center">
-                      <Users size={14} className="absolute left-4 text-slate-400 pointer-events-none" />
-                      <input
-                        type="text"
-                        value={groupCodeInput}
-                        onChange={(e) => setGroupCodeInput(e.target.value.replace(/[^a-zA-Z0-9_\-]/g, ""))}
-                        placeholder="Ejemplo: condominio_san_miguel"
-                        className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-4 py-3 text-xs text-slate-700 placeholder-slate-350 font-bold focus:outline-none focus:border-blue-500 shadow-sm"
-                      />
+                {groupAction === 'create' && (!firebaseUser || !firebaseUser.email || firebaseUser.isAnonymous) ? (
+                  <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl space-y-2 text-left animate-in fade-in duration-300">
+                    <div className="flex items-center gap-2 text-amber-800">
+                      <Lock size={14} className="text-amber-600" />
+                      <span className="text-[10px] font-black uppercase tracking-wider">Creación de Grupo Restringida</span>
                     </div>
-                    
-                    <button
-                      type="button"
-                      onClick={handleSaveGroupCode}
-                      className="px-5 py-3 bg-blue-600 hover:bg-blue-700 hover:scale-[1.01] text-white rounded-2xl text-[10px] font-black uppercase tracking-wider shrink-0 transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-1.5"
-                    >
-                      {groupCode ? "Actualizar" : "Conectar"}
-                    </button>
+                    <p className="text-[10px] text-slate-700 font-extrabold uppercase leading-normal tracking-wide">
+                      Solo los usuarios que ingresen al sistema con su correo electrónico pueden crear grupos de sincronización.
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
+                      Por favor, ve a la pestaña <strong>"Correo y Contraseña"</strong> o <strong>"Google Sign-In"</strong> de arriba para iniciar sesión con tu correo electrónico antes de crear un nuevo grupo de sincronización.
+                    </p>
                   </div>
-                </div>
+                ) : (
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5 text-left">
+                      {groupAction === 'connect' ? "Código de Grupo Ya Creado" : "Escribe un Código de Grupo Único para Crear"}
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1 flex items-center">
+                        <Users size={14} className="absolute left-4 text-slate-400 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={groupCodeInput}
+                          onChange={(e) => setGroupCodeInput(e.target.value.replace(/[^a-zA-Z0-9_\-]/g, ""))}
+                          placeholder={groupAction === 'connect' ? "Ejemplo: condominio_san_miguel" : "Ejemplo: nuevo_grupo_residencial"}
+                          className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-4 py-3 text-xs text-slate-700 placeholder-slate-350 font-bold focus:outline-none focus:border-blue-500 shadow-sm"
+                        />
+                      </div>
+                      
+                      <button
+                        type="button"
+                        disabled={syncing}
+                        onClick={groupAction === 'connect' ? handleSaveGroupCode : handleCreateGroup}
+                        className={`px-5 py-3 text-white rounded-2xl text-[10px] font-black uppercase tracking-wider shrink-0 transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-1.5 ${
+                          groupAction === 'connect' 
+                            ? "bg-blue-600 hover:bg-blue-700 hover:scale-[1.01]" 
+                            : "bg-emerald-600 hover:bg-emerald-700 hover:scale-[1.01]"
+                        }`}
+                      >
+                        {syncing ? (
+                          <RefreshCw size={12} className="animate-spin" />
+                        ) : groupAction === 'connect' ? (
+                          groupCode ? "Actualizar" : "Conectar"
+                        ) : (
+                          "Crear Grupo"
+                        )}
+                      </button>
+                    </div>
+                    {groupAction === 'create' && (
+                      <p className="mt-1.5 text-[10px] text-emerald-600 font-bold text-left leading-normal">
+                        ⓘ Al crear un grupo, registrarás un espacio compartido en la nube al cual otros podrán acceder simplemente ingresando este mismo código.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {groupCode && (
                   <div className="p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl space-y-3.5 text-left animate-in slide-in-from-top-1.5">

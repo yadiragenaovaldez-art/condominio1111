@@ -242,6 +242,11 @@ export async function createGroupCodeInCloud(groupCodeToCreate: string): Promise
   // Ensure authenticated
   await ensureFirebaseAuth();
   
+  const currentUser = auth.currentUser;
+  if (!currentUser || !currentUser.email || currentUser.isAnonymous) {
+    throw new Error("Acceso denegado: Solo los usuarios que ingresen al sistema con su correo electrónico pueden crear grupos de sincronización.");
+  }
+  
   try {
     const docRef = doc(db, "shared_namespaces", code, "info", "meta");
     await setDoc(docRef, {
@@ -249,7 +254,8 @@ export async function createGroupCodeInCloud(groupCodeToCreate: string): Promise
       exists: true,
       code: code,
       createdAt: new Date().toISOString(),
-      creatorUid: auth.currentUser?.uid || "anonymous"
+      creatorUid: currentUser.uid,
+      creatorEmail: currentUser.email
     });
     console.log(`[FirebaseSync] Código de grupo "${code}" registrado con éxito.`);
   } catch (error) {
