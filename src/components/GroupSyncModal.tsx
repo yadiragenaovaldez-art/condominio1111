@@ -51,20 +51,36 @@ export default function GroupSyncModal({ onClose, onReload }: GroupSyncModalProp
           await createGroupCodeInCloud(code);
           localStorage.setItem("condobill_group_code", code);
           const user = await ensureFirebaseAuth();
+          
+          // Subir datos locales para inicializar el grupo nuevo
+          await uploadToCloud(user?.uid || "grupo");
+          
           setMessage({
-            text: `¡Nuevo grupo "${code}" creado con éxito en la nube! Todo listo para sincronizar.`,
+            text: `¡Nuevo grupo "${code}" creado con éxito en la nube! Se han subido tus datos locales para inicializar el grupo.`,
             type: "success"
           });
         } else {
           // Connect to existing group
           const exists = await checkGroupCodeExists(code);
           if (exists) {
+            // Evitar que el auto-sync suba datos locales viejos mientras descargamos
+            localStorage.setItem("condobill_is_syncing_init", "true");
             localStorage.setItem("condobill_group_code", code);
+            
             const user = await ensureFirebaseAuth();
+            
+            // Descargar los datos de la nube inmediatamente
+            const stats = await downloadFromCloud(user?.uid || "grupo");
+            setLocalStats(stats);
+            
             setMessage({
-              text: `¡Código de grupo "${code}" conectado con éxito! Este dispositivo se mantendrá sincronizado automáticamente en segundo plano.`,
+              text: `¡Código de grupo "${code}" conectado con éxito! Se han descargado ${stats.condos} condominio(s) de este grupo. Este dispositivo se mantendrá sincronizado automáticamente en segundo plano.`,
               type: "success"
             });
+
+            setTimeout(() => {
+              localStorage.removeItem("condobill_is_syncing_init");
+            }, 1000);
           } else {
             const createConfirm = window.confirm(
               `El código de grupo "${code}" NO está registrado todavía en el sistema.\n\n` +
@@ -74,8 +90,12 @@ export default function GroupSyncModal({ onClose, onReload }: GroupSyncModalProp
               await createGroupCodeInCloud(code);
               localStorage.setItem("condobill_group_code", code);
               const user = await ensureFirebaseAuth();
+              
+              // Subir datos locales para inicializar el grupo nuevo
+              await uploadToCloud(user?.uid || "grupo");
+              
               setMessage({
-                text: `¡Nuevo grupo "${code}" creado e iniciado con éxito! Todo listo para sincronizar.`,
+                text: `¡Nuevo grupo "${code}" creado e iniciado con éxito! Se han subido tus datos locales para inicializar el grupo.`,
                 type: "success"
               });
             } else {

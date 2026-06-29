@@ -26,7 +26,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword
 } from "firebase/auth";
-import { uploadToCloud, downloadFromCloud, getLocalStats, SyncStats, checkGroupCodeExists, createGroupCodeInCloud } from "../lib/firebaseSync";
+import { uploadToCloud, downloadFromCloud, getLocalStats, SyncStats, checkGroupCodeExists, createGroupCodeInCloud, ensureFirebaseAuth } from "../lib/firebaseSync";
 
 interface FirebaseSyncPanelProps {
   onSyncComplete: () => void;
@@ -80,12 +80,23 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
     try {
       const exists = await checkGroupCodeExists(cleanCode);
       if (exists) {
+        // Evitar que el auto-sync suba datos locales viejos mientras descargamos
+        localStorage.setItem("condobill_is_syncing_init", "true");
         localStorage.setItem("condobill_group_code", cleanCode);
         setGroupCode(cleanCode);
         setGroupCodeInput(cleanCode);
+
+        // Descargar los datos de la nube inmediatamente
+        const user = await ensureFirebaseAuth();
+        const stats = await downloadFromCloud(user?.uid || "grupo");
+
         refreshStats();
         onSyncComplete();
-        alert(`¡Código de Grupo encontrado y conectado: "${cleanCode}"! Todos tus datos sincronizados ahora se compartirán con cualquiera que introduzca este mismo código.`);
+        alert(`¡Código de Grupo encontrado y conectado: "${cleanCode}"! Se han descargado ${stats.condos} condominio(s) de este grupo. Este dispositivo se mantendrá sincronizado automáticamente en segundo plano.`);
+
+        setTimeout(() => {
+          localStorage.removeItem("condobill_is_syncing_init");
+        }, 1000);
       } else {
         const createConfirm = window.confirm(
           `El código de grupo "${cleanCode}" NO existe todavía en el sistema.\n\n` +
@@ -96,9 +107,14 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
           localStorage.setItem("condobill_group_code", cleanCode);
           setGroupCode(cleanCode);
           setGroupCodeInput(cleanCode);
+
+          // Subir datos locales para inicializar el grupo nuevo
+          const user = await ensureFirebaseAuth();
+          await uploadToCloud(user?.uid || "grupo");
+
           refreshStats();
           onSyncComplete();
-          alert(`¡Nuevo Grupo creado e iniciado con éxito bajo el código: "${cleanCode}"! Ahora puedes subir tus cambios e invitar a otros.`);
+          alert(`¡Nuevo Grupo creado e iniciado con éxito bajo el código: "${cleanCode}"! Se han subido tus datos locales para inicializar el grupo. Ahora otros dispositivos pueden conectarse.`);
         } else {
           setErrorMsg("La conexión falló: El código de grupo provisto no existe.");
           setSyncStatus('error');
@@ -137,9 +153,14 @@ export default function FirebaseSyncPanel({ onSyncComplete }: FirebaseSyncPanelP
       localStorage.setItem("condobill_group_code", cleanCode);
       setGroupCode(cleanCode);
       setGroupCodeInput(cleanCode);
+
+      // Subir datos locales para inicializar el grupo nuevo
+      const user = await ensureFirebaseAuth();
+      await uploadToCloud(user?.uid || "grupo");
+
       refreshStats();
       onSyncComplete();
-      alert(`¡Nuevo Grupo creado e iniciado con éxito bajo el código: "${cleanCode}"! Ahora puedes subir tus cambios e invitar a otros.`);
+      alert(`¡Nuevo Grupo creado e iniciado con éxito bajo el código: "${cleanCode}"! Se han subido tus datos locales para inicializar el grupo. Ahora otros dispositivos pueden conectarse.`);
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err?.message || "Ocurrió un error al crear el código de grupo.");

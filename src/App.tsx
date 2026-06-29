@@ -718,6 +718,12 @@ export default function App() {
       return;
     }
 
+    const isInitSyncing = localStorage.getItem("condobill_is_syncing_init") === "true";
+    if (isInitSyncing) {
+      console.log("[Firebase] Omitiendo respaldo automático en segundo plano durante la conexión/descarga inicial del grupo.");
+      return;
+    }
+
     const rawSyncSetting = localStorage.getItem("condobill_auto_cloud_sync");
     const isAutoSyncEnabled = rawSyncSetting === null ? true : rawSyncSetting === "true";
     if (!isAutoSyncEnabled) return;
