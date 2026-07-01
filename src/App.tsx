@@ -139,10 +139,6 @@ const formatCurrency = (amount: number) => {
 export default function App() {
   const isPublicRegistration = typeof window !== "undefined" && window.location.search.includes("register-owner=true");
 
-  if (isPublicRegistration) {
-    return <PublicOwnerRegistration />;
-  }
-
   const [currentUser, setCurrentUser] = useState<AppUser | null>(() => storage.getCurrentUser());
   const [users, setUsers] = useState<AppUser[]>(() => storage.getUsers());
   const [pendingRegistrations, setPendingRegistrations] = useState<any[]>([]);
@@ -1099,6 +1095,10 @@ export default function App() {
     setActiveTab(tab);
     setMobileMenuOpen(false);
   };
+
+  if (isPublicRegistration) {
+    return <PublicOwnerRegistration />;
+  }
 
   if (!currentUser) {
     return (
@@ -4891,22 +4891,328 @@ function BillingView({
     return { total, paidCount, pendingCount, pendingAmount, paidAmount };
   }, [unitPayments]);
 
+  // Estados para el nuevo panel de facturación con método de pago y notas
+  const [billingUnit, setBillingUnit] = useState<Unidad | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<string>("Efectivo");
+  const [invoiceNote, setInvoiceNote] = useState<string>("");
+  const [amountPaid, setAmountPaid] = useState<string>("");
+  const [transferBank, setTransferBank] = useState<string>("Banco Popular");
+  const [referenceNumber, setReferenceNumber] = useState<string>("");
+  const [usdExchangeRate, setUsdExchangeRate] = useState<string>("58.5");
+
+  const parsePaymentDescription = (desc?: string) => {
+    if (!desc) return { method: "Efectivo", note: "", received: "", change: "", bank: "", ref: "", rate: "", usdAmount: "" };
+    let method = "Efectivo";
+    let note = "";
+    let received = "";
+    let change = "";
+    let bank = "";
+    let ref = "";
+    let rate = "";
+    let usdAmount = "";
+    
+    if (desc.includes("| Método:")) {
+      const parts = desc.split("|");
+      for (const part of parts) {
+        const trimmed = part.trim();
+        if (trimmed.startsWith("Método:")) {
+          method = trimmed.replace("Método:", "").trim();
+        } else if (trimmed.startsWith("Nota:")) {
+          note = trimmed.replace("Nota:", "").trim();
+        } else if (trimmed.startsWith("Recibido:")) {
+          received = trimmed.replace("Recibido:", "").trim();
+        } else if (trimmed.startsWith("Devuelta:")) {
+          change = trimmed.replace("Devuelta:", "").trim();
+        } else if (trimmed.startsWith("Banco:")) {
+          bank = trimmed.replace("Banco:", "").trim();
+        } else if (trimmed.startsWith("Ref:")) {
+          ref = trimmed.replace("Ref:", "").trim();
+        } else if (trimmed.startsWith("Tasa:")) {
+          rate = trimmed.replace("Tasa:", "").trim();
+        } else if (trimmed.startsWith("Total USD:")) {
+          usdAmount = trimmed.replace("Total USD:", "").trim();
+        }
+      }
+    }
+    return { method, note, received, change, bank, ref, rate, usdAmount };
+  };
+
   const handleBill = (unit: Unidad) => {
     const amount = unit.maintenanceFee || 0;
     if (amount <= 0) {
       alert("La unidad no tiene una cuota de mantenimiento asignada.");
       return;
     }
+    setBillingUnit(unit);
+    setPaymentMethod("Efectivo");
+    setInvoiceNote("");
+    setAmountPaid("");
+    setTransferBank("Banco Popular");
+    setReferenceNumber("");
+    setUsdExchangeRate("58.5");
+  };
+
+  const confirmBill = () => {
+    if (!billingUnit) return;
+    const amount = billingUnit.maintenanceFee || 0;
+    const dateStr = new Date().toISOString().split("T")[0];
+    const generatedTxId = `TX-${Date.now().toString().slice(-6)}`;
+    
+    let paymentDetailsText = "";
+    const extraDetails: any = {};
+
+    if (paymentMethod === "Efectivo") {
+      if (amountPaid) {
+        const receivedVal = parseFloat(amountPaid) || 0;
+        const changeVal = Math.max(0, receivedVal - amount);
+        paymentDetailsText = ` | Recibido: ${receivedVal} | Devuelta: ${changeVal}`;
+        extraDetails.received = receivedVal.toString();
+        extraDetails.change = changeVal.toString();
+      }
+    } else if (paymentMethod === "Transferencia bancaria") {
+      paymentDetailsText = ` | Banco: ${transferBank} | Ref: ${referenceNumber}`;
+      extraDetails.bank = transferBank;
+      extraDetails.ref = referenceNumber;
+    } else if (paymentMethod === "Pago con tarjeta") {
+      paymentDetailsText = ` | Ref: ${referenceNumber}`;
+      extraDetails.ref = referenceNumber;
+    } else if (paymentMethod === "Pago en dólares") {
+      const rateVal = parseFloat(usdExchangeRate) || 58.5;
+      const usdVal = (amount / rateVal).toFixed(2);
+      paymentDetailsText = ` | Tasa: ${rateVal} | Total USD: ${usdVal}`;
+      extraDetails.rate = rateVal.toString();
+      extraDetails.usdAmount = usdVal;
+    }
+
+    const formattedDesc = `Pago mantenimiento Unidad ${billingUnit.numero} - ${selectedMonth} | Método: ${paymentMethod}${paymentDetailsText}${invoiceNote ? ` | Nota: ${invoiceNote}` : ""}`;
 
     onAddTransaction({
-      condominioId: unit.condominioId,
+      condominioId: billingUnit.condominioId,
       type: TransactionType.INCOME,
       category: "INGRESOS ORDINARIOS",
       concept: "Cuotas de Mantenimientos",
       amount: amount,
-      date: new Date().toISOString().split("T")[0],
-      description: `Pago mantenimiento Unidad ${unit.numero} - ${selectedMonth}`,
+      date: dateStr,
+      description: formattedDesc,
     });
+
+    generateCondoInvoicePDF(billingUnit, amount, selectedMonth, paymentMethod, invoiceNote, generatedTxId, dateStr, extraDetails);
+    setBillingUnit(null);
+  };
+
+  const handlePrintInvoice = (unit: Unidad, payment: any) => {
+    if (!payment) return;
+    const amount = payment.amount || unit.maintenanceFee || 0;
+    const dateStr = payment.date || new Date().toISOString().split("T")[0];
+    const txId = payment.id ? payment.id.slice(-6).toUpperCase() : `TX-${Date.now().toString().slice(-6)}`;
+    const parsed = parsePaymentDescription(payment.description);
+    
+    generateCondoInvoicePDF(unit, amount, selectedMonth, parsed.method, parsed.note, txId, dateStr, {
+      received: parsed.received,
+      change: parsed.change,
+      bank: parsed.bank,
+      ref: parsed.ref,
+      rate: parsed.rate,
+      usdAmount: parsed.usdAmount
+    });
+  };
+
+  const generateCondoInvoicePDF = (
+    unit: Unidad,
+    amount: number,
+    month: string,
+    method: string,
+    note: string,
+    txId: string,
+    dateStr: string,
+    details?: {
+      received?: string;
+      change?: string;
+      bank?: string;
+      ref?: string;
+      rate?: string;
+      usdAmount?: string;
+    }
+  ) => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+
+    const primaryColor = [15, 23, 42]; 
+    const accentColor = [16, 185, 129]; 
+    const lightBg = [248, 250, 252]; 
+    const borderColor = [226, 232, 240]; 
+
+    doc.setFillColor(accentColor[0], accentColor[1], accentColor[2]);
+    doc.rect(0, 0, pageWidth, 8, "F");
+
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text("COMPROBANTE DE PAGO", 20, 25);
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139); 
+    doc.text(`REGISTRO DE FACTURACIÓN # ${txId}`, 20, 31);
+
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text(condo?.name || "CONDOMINIO", pageWidth - 20, 25, { align: "right" });
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text(condo?.address || "Administración General", pageWidth - 20, 31, { align: "right" });
+
+    doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+    doc.setLineWidth(0.5);
+    doc.line(20, 38, pageWidth - 20, 38);
+
+    let y = 48;
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(100, 116, 139);
+    doc.text("FACTURADO A:", 20, y);
+    
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text(unit.ownerName, 20, y + 6);
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(71, 85, 105); 
+    doc.text(`Unidad No. ${unit.numero}`, 20, y + 12);
+    doc.text(`Tel: ${unit.whatsapp}`, 20, y + 18);
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(100, 116, 139);
+    doc.text("DETALLES DEL RECIBO:", 115, y);
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Fecha de Emisión: ${dateStr}`, 115, y + 6);
+    doc.text(`Mes Correspondiente: ${month}`, 115, y + 12);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Método de Pago: ${method}`, 115, y + 18);
+
+    if (details) {
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(71, 85, 105);
+      if (method === "Efectivo" && details.received) {
+        doc.text(`Recibido: RD$ ${Number(details.received).toLocaleString()}`, 115, y + 24);
+        if (details.change) {
+          doc.setFont("helvetica", "bold");
+          doc.text(`Devuelta: RD$ ${Number(details.change).toLocaleString()}`, 115, y + 29);
+        }
+      } else if (method === "Transferencia bancaria" && details.bank) {
+        doc.text(`Banco: ${details.bank}`, 115, y + 24);
+        if (details.ref) {
+          doc.text(`Ref: ${details.ref}`, 115, y + 29);
+        }
+      } else if (method === "Pago con tarjeta" && details.ref) {
+        doc.text(`Ref Tarjeta: ${details.ref}`, 115, y + 24);
+      } else if (method === "Pago en dólares" && details.rate) {
+        doc.text(`Tasa USD: RD$ ${details.rate}`, 115, y + 24);
+        if (details.usdAmount) {
+          doc.setFont("helvetica", "bold");
+          doc.text(`Total USD: $${details.usdAmount}`, 115, y + 29);
+        }
+      }
+    }
+
+    y = 80;
+    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.rect(20, y, pageWidth - 40, 10, "F");
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("CONCEPTO / DESCRIPCIÓN", 25, y + 6.5);
+    doc.text("TOTAL (RD$)", pageWidth - 25, y + 6.5, { align: "right" });
+
+    y = 90;
+    doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
+    doc.rect(20, y, pageWidth - 40, 15, "F");
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text(`Cuota de Mantenimiento Ordinario - Unidad No. ${unit.numero}`, 25, y + 9);
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Periodo correspondiente: ${month}`, 25, y + 14);
+
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text(`RD$ ${amount.toLocaleString()}`, pageWidth - 25, y + 9.5, { align: "right" });
+
+    doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+    doc.line(20, y + 15, pageWidth - 20, y + 15);
+
+    y = 115;
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(71, 85, 105);
+    doc.text("Subtotal:", pageWidth - 70, y);
+    doc.text(`RD$ ${amount.toLocaleString()}`, pageWidth - 25, y, { align: "right" });
+
+    doc.text("Descuentos / Impuestos:", pageWidth - 70, y + 6);
+    doc.text("RD$ 0.00", pageWidth - 25, y + 6, { align: "right" });
+
+    doc.setFillColor(241, 245, 249); 
+    doc.rect(pageWidth - 75, y + 10, 55, 10, "F");
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text("TOTAL PAGADO:", pageWidth - 70, y + 16.5);
+    doc.text(`RD$ ${amount.toLocaleString()}`, pageWidth - 25, y + 16.5, { align: "right" });
+
+    if (note && note.trim() !== "") {
+      y = 145;
+      doc.setFillColor(254, 253, 246); 
+      doc.setDrawColor(253, 224, 71); 
+      doc.setLineWidth(0.3);
+      doc.rect(20, y, pageWidth - 40, 24, "FD");
+
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(161, 98, 7); 
+      doc.text("NOTA DE LA FACTURA:", 24, y + 6);
+
+      doc.setFontSize(9.5);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(67, 56, 202); 
+      
+      const wrappedNote = doc.splitTextToSize(note, pageWidth - 48);
+      doc.text(wrappedNote, 24, y + 12);
+    }
+
+    y = 200;
+    doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+    doc.setLineWidth(0.5);
+    doc.line(pageWidth / 2 - 40, y + 15, pageWidth / 2 + 40, y + 15);
+    
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(100, 116, 139);
+    doc.text("ADMINISTRACIÓN Y COBROS", pageWidth / 2, y + 20, { align: "center" });
+    doc.text(condo?.name || "CONDOMINIO", pageWidth / 2, y + 24, { align: "center" });
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(accentColor[0], accentColor[1], accentColor[2]);
+    doc.text("¡Gracias por su pago puntual y su contribución a la comunidad!", pageWidth / 2, y + 45, { align: "center" });
+
+    doc.save(`Factura_${unit.numero}_${month}.pdf`);
   };
 
   const sendWhatsAppReminder = (unit: Unidad) => {
@@ -5150,9 +5456,18 @@ function BillingView({
                           </>
                         )}
                         {paid && (
-                          <span className="text-[9px] font-bold text-slate-300 italic uppercase">
-                            Procesado: {payment?.date}
-                          </span>
+                          <div className="flex items-center gap-2 animate-in fade-in duration-300">
+                            <span className="text-[9px] font-black text-emerald-700 bg-emerald-50/80 px-2 py-1 rounded-lg border border-emerald-100 uppercase tracking-wider">
+                              Pago: {payment?.date}
+                            </span>
+                            <button
+                              onClick={() => handlePrintInvoice(unit, payment)}
+                              className="h-9 px-3 flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all shadow-sm"
+                              title="Descargar Factura PDF"
+                            >
+                              <Printer size={12} strokeWidth={2.5} className="text-slate-500" /> Factura
+                            </button>
+                          </div>
                         )}
                       </div>
                     </td>
@@ -5221,6 +5536,230 @@ function BillingView({
           </div>
         </div>
       </div>
+
+      {/* Modal de Facturación de Condominio */}
+      <AnimatePresence>
+        {billingUnit && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl border border-slate-100"
+            >
+              {/* Header */}
+              <div className="bg-slate-900 p-6 text-white flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-black uppercase italic tracking-wider flex items-center gap-2">
+                    <ReceiptText size={16} className="text-emerald-400" /> Registrar y Facturar Pago
+                  </h3>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                    Unidad {billingUnit.numero} • {billingUnit.ownerName}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setBillingUnit(null)}
+                  className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Form Content */}
+              <div className="p-6 space-y-5">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">
+                      Periodo Facturado
+                    </label>
+                    <p className="text-xs font-black text-slate-800 uppercase italic">
+                      {selectedMonth}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">
+                      Monto Cuota
+                    </label>
+                    <p className="text-sm font-black text-emerald-600 font-mono">
+                      RD$ {billingUnit.maintenanceFee?.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Payment Method Selector */}
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">
+                    Método de Pago
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: "Efectivo", label: "Efectivo 💵" },
+                      { id: "Transferencia bancaria", label: "Transferencia 🏦" },
+                      { id: "Pago en dólares", label: "Dólares (USD) 💵🇺🇸" },
+                      { id: "Pago con tarjeta", label: "Tarjeta 💳" },
+                    ].map((method) => (
+                      <button
+                        key={method.id}
+                        type="button"
+                        onClick={() => setPaymentMethod(method.id)}
+                        className={`py-2.5 px-3 rounded-xl border text-xs font-bold text-left transition-all flex items-center gap-2 ${
+                          paymentMethod === method.id
+                            ? "bg-slate-900 border-slate-900 text-white shadow-sm"
+                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300"
+                        }`}
+                      >
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            paymentMethod === method.id ? "bg-emerald-400" : "bg-slate-300"
+                          }`}
+                        />
+                        {method.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Campos específicos del método de pago */}
+                <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100/80 space-y-3">
+                  {paymentMethod === "Efectivo" && (
+                    <div className="grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div>
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">
+                          Monto Recibido (RD$)
+                        </label>
+                        <input
+                          type="number"
+                          value={amountPaid}
+                          onChange={(e) => setAmountPaid(e.target.value)}
+                          placeholder="Ej: 1500"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">
+                          Cambio / Devuelta
+                        </label>
+                        <div className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-700 flex items-center h-[34px]">
+                          RD$ {amountPaid ? Math.max(0, (parseFloat(amountPaid) || 0) - (billingUnit.maintenanceFee || 0)).toLocaleString("es-DO", { minimumFractionDigits: 2 }) : "0.00"}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentMethod === "Transferencia bancaria" && (
+                    <div className="grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div>
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">
+                          Banco de Origen
+                        </label>
+                        <select
+                          value={transferBank}
+                          onChange={(e) => setTransferBank(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-2 py-2 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          <option value="Banco Popular">Banco Popular</option>
+                          <option value="Banreservas">Banreservas</option>
+                          <option value="Banco BHD">Banco BHD</option>
+                          <option value="APAP">Asociación Popular (APAP)</option>
+                          <option value="Scotiabank">Scotiabank</option>
+                          <option value="Banco Santa Cruz">Banco Santa Cruz</option>
+                          <option value="Banco Promerica">Banco Promerica</option>
+                          <option value="Asociación Cibao">Asociación Cibao (ACAP)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">
+                          No. de Referencia
+                        </label>
+                        <input
+                          type="text"
+                          value={referenceNumber}
+                          onChange={(e) => setReferenceNumber(e.target.value)}
+                          placeholder="Ej: 481023"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentMethod === "Pago con tarjeta" && (
+                    <div className="animate-in fade-in slide-in-from-top-1 duration-200">
+                      <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">
+                        No. de Referencia del Pago (Tarjeta)
+                      </label>
+                      <input
+                        type="text"
+                        value={referenceNumber}
+                        onChange={(e) => setReferenceNumber(e.target.value)}
+                        placeholder="Ej: TX-CARD-9012"
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  )}
+
+                  {paymentMethod === "Pago en dólares" && (
+                    <div className="grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div>
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">
+                          Tasa de Cambio del Día
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={usdExchangeRate}
+                          onChange={(e) => setUsdExchangeRate(e.target.value)}
+                          placeholder="Ej: 58.50"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">
+                          Equivalencia a Pagar (USD)
+                        </label>
+                        <div className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-700 flex items-center h-[34px]">
+                          $ {((billingUnit.maintenanceFee || 0) / (parseFloat(usdExchangeRate) || 58.5)).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Notes Textarea */}
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                    Nota de la Factura (Saldrá en el PDF)
+                  </label>
+                  <textarea
+                    value={invoiceNote}
+                    onChange={(e) => setInvoiceNote(e.target.value)}
+                    placeholder="Ej: Pago realizado por el inquilino / Transferencia Banco Popular..."
+                    rows={3}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-xs font-medium text-slate-800 outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* Action Footer */}
+              <div className="bg-slate-50 p-4 border-t border-slate-100 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setBillingUnit(null)}
+                  className="flex-1 py-3 border border-slate-200 hover:bg-slate-100 rounded-xl text-xs font-black uppercase tracking-wider text-slate-500 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmBill}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Check size={14} strokeWidth={3} /> Procesar Pago
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
