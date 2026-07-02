@@ -695,31 +695,6 @@ export default function App() {
     storage.saveAutoSaveSettings(autoSaveSettings);
   }, [autoSaveSettings]);
 
-  // Lógica de respaldo automático
-  useEffect(() => {
-    if (!autoSaveSettings.enabled) return;
-
-    const intervalId = setInterval(
-      () => {
-        const data = storage.exportAllData();
-        const blob = new Blob([JSON.stringify(data, null, 2)], {
-          type: "application/json",
-        });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `backup_auto_${new Date().toISOString().replace(/:/g, "-")}.json`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      },
-      autoSaveSettings.interval * 60 * 1000,
-    );
-
-    return () => clearInterval(intervalId);
-  }, [autoSaveSettings]);
-
   // Load data on start
   useEffect(() => {
     storage.saveTicketSettings(ticketSettings);
@@ -10794,46 +10769,19 @@ function SettingsView({
 
 
 
-              <div className="pt-8 border-t border-slate-100 space-y-8">
-                <div
-                  className="flex items-center gap-4 group cursor-pointer"
-                  onClick={() => handleAutoSaveToggle(!localAutoSave.enabled)}
-                >
-                  <div
-                    className={`w-6 h-6 rounded-md border-2 transition-all flex items-center justify-center ${localAutoSave.enabled ? "bg-blue-600 border-blue-600 shadow-lg shadow-blue-200" : "bg-white border-slate-200"}`}
-                  >
-                    {localAutoSave.enabled && (
-                      <Check size={14} className="text-white" strokeWidth={4} />
-                    )}
+              <div className="pt-8 border-t border-slate-100 space-y-4">
+                <div className="p-5 bg-blue-50/50 rounded-2xl border border-blue-100/60 flex gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                    <Database size={20} />
                   </div>
-                  <span className="text-[11px] font-black text-slate-700 uppercase tracking-widest">
-                    Habilitar Guardado Automático
-                  </span>
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block px-1">
-                      Intervalo (Minutos)
-                    </label>
-                    <p className="text-[9px] font-bold text-slate-300 uppercase tracking-tighter px-1">
-                      Se generará un archivo de respaldo cada periodo.
+                  <div>
+                    <h4 className="text-[11px] font-black text-blue-800 uppercase tracking-widest leading-none mt-1">
+                      Guardado Automático Local Continuo
+                    </h4>
+                    <p className="text-[10px] font-semibold text-slate-500 leading-relaxed mt-2">
+                      Todos sus datos se guardan al instante y de manera segura en el almacenamiento de su navegador (LocalStorage). Los archivos de respaldo solo se descargarán cuando usted lo solicite de manera explícita haciendo clic en el botón <strong>"Exportar Datos"</strong> de arriba.
                     </p>
                   </div>
-                  <select
-                    value={localAutoSave.interval}
-                    onChange={(e) =>
-                      handleAutoSaveInterval(parseInt(e.target.value))
-                    }
-                    className="h-12 px-6 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 focus:ring-2 focus:ring-blue-500 transition-all shadow-sm min-w-[160px] outline-none"
-                  >
-                    <option value={1}>1 Minuto (Prueba)</option>
-                    <option value={5}>5 Minutos</option>
-                    <option value={15}>15 Minutos</option>
-                    <option value={30}>30 Minutos</option>
-                    <option value={60}>1 Hora</option>
-                    <option value={1440}>A Diario (24h)</option>
-                  </select>
                 </div>
               </div>
 
