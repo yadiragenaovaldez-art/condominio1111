@@ -136,6 +136,289 @@ const formatCurrency = (amount: number) => {
   }).format(amount);
 };
 
+// Helper to parse description
+export const parsePaymentDescription = (desc?: string) => {
+  if (!desc) return { method: "Efectivo", note: "", received: "", change: "", bank: "", ref: "", rate: "", usdAmount: "" };
+  let method = "Efectivo";
+  let note = "";
+  let received = "";
+  let change = "";
+  let bank = "";
+  let ref = "";
+  let rate = "";
+  let usdAmount = "";
+  
+  if (desc.includes("| Método:")) {
+    const parts = desc.split("|");
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (trimmed.startsWith("Método:")) {
+        method = trimmed.replace("Método:", "").trim();
+      } else if (trimmed.startsWith("Nota:")) {
+        note = trimmed.replace("Nota:", "").trim();
+      } else if (trimmed.startsWith("Recibido:")) {
+        received = trimmed.replace("Recibido:", "").trim();
+      } else if (trimmed.startsWith("Devuelta:")) {
+        change = trimmed.replace("Devuelta:", "").trim();
+      } else if (trimmed.startsWith("Banco:")) {
+        bank = trimmed.replace("Banco:", "").trim();
+      } else if (trimmed.startsWith("Ref:")) {
+        ref = trimmed.replace("Ref:", "").trim();
+      } else if (trimmed.startsWith("Tasa:")) {
+        rate = trimmed.replace("Tasa:", "").trim();
+      } else if (trimmed.startsWith("Total USD:")) {
+        usdAmount = trimmed.replace("Total USD:", "").trim();
+      }
+    }
+  }
+  return { method, note, received, change, bank, ref, rate, usdAmount };
+};
+
+// Helper to get unit debt info
+export const getUnitDebtInfo = (unit: Unidad, transactions: Transaction[]) => {
+  const unitTxs = (transactions || []).filter((t) =>
+    t.type === TransactionType.INCOME &&
+    t.concept === "Cuotas de Mantenimientos" &&
+    t.description?.includes(`Unidad ${unit.numero}`)
+  );
+
+  const trailingMonths: string[] = [];
+  const d = new Date();
+  for (let i = 0; i < 12; i++) {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    trailingMonths.push(`${yyyy}-${mm}`);
+    d.setMonth(d.getMonth() - 1);
+  }
+
+  const unpaidMonths = trailingMonths.filter((month) => {
+    const hasPayment = unitTxs.some((t) =>
+      t.description?.includes(month) || t.date.startsWith(month)
+    );
+    return !hasPayment;
+  });
+
+  const paidMonthsInfo = trailingMonths.map((month) => {
+    const payment = unitTxs.find((t) =>
+      t.description?.includes(month) || t.date.startsWith(month)
+    );
+    return {
+      month,
+      paid: !!payment,
+      payment,
+    };
+  });
+
+  return {
+    unpaidCount: unpaidMonths.length,
+    unpaidMonths,
+    paidMonthsInfo,
+    totalOwed: unpaidMonths.length * (unit.maintenanceFee || 0),
+    isUpToDate: unpaidMonths.length === 0,
+    unitTxs,
+  };
+};
+
+export const generateCondoInvoicePDF = (
+  condoName: string,
+  condoAddress: string,
+  unit: Unidad,
+  amount: number,
+  month: string,
+  method: string,
+  note: string,
+  txId: string,
+  dateStr: string,
+  details?: {
+    received?: string;
+    change?: string;
+    bank?: string;
+    ref?: string;
+    rate?: string;
+    usdAmount?: string;
+  }
+) => {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  const primaryColor = [15, 23, 42]; 
+  const accentColor = [16, 185, 129]; 
+  const lightBg = [248, 250, 252]; 
+  const borderColor = [226, 232, 240]; 
+
+  doc.setFillColor(accentColor[0], accentColor[1], accentColor[2]);
+  doc.rect(0, 0, pageWidth, 8, "F");
+
+  doc.setFontSize(22);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.text("COMPROBANTE DE PAGO", 20, 25);
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(100, 116, 139); 
+  doc.text(`REGISTRO DE FACTURACIÓN # ${txId}`, 20, 31);
+
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.text(condoName || "CONDOMINIO", pageWidth - 20, 25, { align: "right" });
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(100, 116, 139);
+  doc.text(condoAddress || "Administración General", pageWidth - 20, 31, { align: "right" });
+
+  doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+  doc.setLineWidth(0.5);
+  doc.line(20, 38, pageWidth - 20, 38);
+
+  let y = 48;
+  
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(100, 116, 139);
+  doc.text("FACTURADO A:", 20, y);
+  
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.text(unit.ownerName, 20, y + 6);
+  
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(71, 85, 105); 
+  doc.text(`Unidad No. ${unit.numero}`, 20, y + 12);
+  doc.text(`Tel: ${unit.whatsapp}`, 20, y + 18);
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(100, 116, 139);
+  doc.text("DETALLES DEL RECIBO:", 115, y);
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Fecha de Emisión: ${dateStr}`, 115, y + 6);
+  doc.text(`Mes Correspondiente: ${month}`, 115, y + 12);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Método de Pago: ${method}`, 115, y + 18);
+
+  if (details) {
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(71, 85, 105);
+    if (method === "Efectivo" && details.received) {
+      doc.text(`Recibido: RD$ ${Number(details.received).toLocaleString()}`, 115, y + 24);
+      if (details.change) {
+        doc.setFont("helvetica", "bold");
+        doc.text(`Devuelta: RD$ ${Number(details.change).toLocaleString()}`, 115, y + 29);
+      }
+    } else if (method === "Transferencia bancaria" && details.bank) {
+      doc.text(`Banco: ${details.bank}`, 115, y + 24);
+      if (details.ref) {
+        doc.text(`Ref: ${details.ref}`, 115, y + 29);
+      }
+    } else if (method === "Pago con tarjeta" && details.ref) {
+      doc.text(`Ref Tarjeta: ${details.ref}`, 115, y + 24);
+    } else if (method === "Pago en dólares" && details.rate) {
+      doc.text(`Tasa USD: RD$ ${details.rate}`, 115, y + 24);
+      if (details.usdAmount) {
+        doc.setFont("helvetica", "bold");
+        doc.text(`Total USD: $${details.usdAmount}`, 115, y + 29);
+      }
+    }
+  }
+
+  y = 80;
+  doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.rect(20, y, pageWidth - 40, 10, "F");
+  
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 255, 255);
+  doc.text("CONCEPTO / DESCRIPCIÓN", 25, y + 6.5);
+  doc.text("TOTAL (RD$)", pageWidth - 25, y + 6.5, { align: "right" });
+
+  y = 90;
+  doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
+  doc.rect(20, y, pageWidth - 40, 15, "F");
+  
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.text(`Cuota de Mantenimiento Ordinario - Unidad No. ${unit.numero}`, 25, y + 9);
+  
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Periodo correspondiente: ${month}`, 25, y + 14);
+
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.text(`RD$ ${amount.toLocaleString()}`, pageWidth - 25, y + 9.5, { align: "right" });
+
+  doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+  doc.line(20, y + 15, pageWidth - 20, y + 15);
+
+  y = 115;
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(71, 85, 105);
+  doc.text("Subtotal:", pageWidth - 70, y);
+  doc.text(`RD$ ${amount.toLocaleString()}`, pageWidth - 25, y, { align: "right" });
+
+  doc.text("Descuentos / Impuestos:", pageWidth - 70, y + 6);
+  doc.text("RD$ 0.00", pageWidth - 25, y + 6, { align: "right" });
+
+  doc.setFillColor(241, 245, 249); 
+  doc.rect(pageWidth - 75, y + 10, 55, 10, "F");
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.text("TOTAL PAGADO:", pageWidth - 70, y + 16.5);
+  doc.text(`RD$ ${amount.toLocaleString()}`, pageWidth - 25, y + 16.5, { align: "right" });
+
+  if (note && note.trim() !== "") {
+    y = 145;
+    doc.setFillColor(254, 253, 246); 
+    doc.setDrawColor(253, 224, 71); 
+    doc.setLineWidth(0.3);
+    doc.rect(20, y, pageWidth - 40, 24, "FD");
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(161, 98, 7); 
+    doc.text("NOTA DE LA FACTURA:", 24, y + 6);
+
+    doc.setFontSize(9.5);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(67, 56, 202); 
+    
+    const wrappedNote = doc.splitTextToSize(note, pageWidth - 48);
+    doc.text(wrappedNote, 24, y + 12);
+  }
+
+  y = 200;
+  doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+  doc.setLineWidth(0.5);
+  doc.line(pageWidth / 2 - 40, y + 15, pageWidth / 2 + 40, y + 15);
+  
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(100, 116, 139);
+  doc.text("ADMINISTRACIÓN Y COBROS", pageWidth / 2, y + 20, { align: "center" });
+  doc.text(condoName || "CONDOMINIO", pageWidth / 2, y + 24, { align: "center" });
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "italic");
+  doc.setTextColor(accentColor[0], accentColor[1], accentColor[2]);
+  doc.text("¡Gracias por su pago puntual y su contribución a la comunidad!", pageWidth / 2, y + 45, { align: "center" });
+
+  doc.save(`Factura_${unit.numero}_${month}.pdf`);
+};
+
 export default function App() {
   const isPublicRegistration = typeof window !== "undefined" && window.location.search.includes("register-owner=true");
 
@@ -1683,6 +1966,7 @@ export default function App() {
                     suppliers={suppliers}
                     onAddSupplier={addSupplier}
                     onDeleteSupplier={deleteSupplier}
+                    transactions={transactions}
                   />
                 )}
                 {activeTab === "settings" && (
@@ -3303,12 +3587,16 @@ function UnitsManager({
   onAdd,
   onUpdate,
   onDelete,
+  transactions = [],
+  condos = [],
 }: {
   condoId: string;
   units: Unidad[];
   onAdd: (u: any) => void;
   onUpdate: (id: string, u: any) => void;
   onDelete: (id: string) => void;
+  transactions?: Transaction[];
+  condos?: Condominio[];
 }) {
   const [isAdding, setIsAdding] = useState(false);
   const [numero, setNumero] = useState("");
@@ -3320,6 +3608,8 @@ function UnitsManager({
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [historyUnit, setHistoryUnit] = useState<Unidad | null>(null);
+  const [historyTab, setHistoryTab] = useState<"calendar" | "transactions">("calendar");
 
   const condoUnits = units.filter((u) => u.condominioId === condoId);
 
@@ -3609,10 +3899,28 @@ function UnitsManager({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-blue-600 uppercase tracking-tighter">
-                    Apto {u.numero}
-                  </span>
-                  <div className="flex gap-1 transition-opacity">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-black text-blue-600 uppercase tracking-tighter shrink-0">
+                      Apto {u.numero}
+                    </span>
+                    {(() => {
+                      const debtInfo = getUnitDebtInfo(u, transactions);
+                      if (debtInfo.isUpToDate) {
+                        return (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black bg-emerald-50 text-emerald-600 border border-emerald-100 uppercase tracking-wider leading-none shrink-0">
+                            ● Al día
+                          </span>
+                        );
+                      } else {
+                        return (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black bg-rose-50 text-rose-600 border border-rose-100 uppercase tracking-wider leading-none shrink-0" title={`Meses vencidos: ${debtInfo.unpaidMonths.join(', ')}`}>
+                            ⚠️ Debe {debtInfo.unpaidCount} mes{debtInfo.unpaidCount > 1 ? "es" : ""}
+                          </span>
+                        );
+                      }
+                    })()}
+                  </div>
+                  <div className="flex gap-1 transition-opacity items-center">
                     {confirmingId === u.id ? (
                       <div className="flex items-center gap-1 bg-rose-50 p-1 rounded-lg border border-rose-100">
                         <button
@@ -3633,6 +3941,16 @@ function UnitsManager({
                       </div>
                     ) : (
                       <>
+                        <button
+                          onClick={() => {
+                            setHistoryUnit(u);
+                            setHistoryTab("calendar");
+                          }}
+                          className="h-7 px-2.5 flex items-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-150 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-xs cursor-pointer"
+                          title="Ver Historial de Pagos"
+                        >
+                          <History size={10} strokeWidth={2.5} className="text-blue-600" /> Historial
+                        </button>
                         <button
                           onClick={() => startEdit(u)}
                           className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"
@@ -3671,6 +3989,299 @@ function UnitsManager({
           ))
         )}
       </div>
+
+      {/* Modal de Historial de Pagos de Unidad */}
+      <AnimatePresence>
+        {historyUnit && (() => {
+          const debtInfo = getUnitDebtInfo(historyUnit, transactions);
+          const currentCondo = condos.find(c => c.id === condoId);
+          return (
+            <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl border border-slate-100 flex flex-col max-h-[85vh]"
+              >
+                {/* Header */}
+                <div className="bg-slate-900 p-6 text-white flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-blue-500/15 rounded-xl flex items-center justify-center text-blue-400 border border-blue-500/20 shadow-inner">
+                      <History size={22} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black uppercase italic tracking-wider">
+                        Historial y Estado de Unidad
+                      </h3>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                        Apto No. {historyUnit.numero} • {historyUnit.ownerName}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setHistoryUnit(null)}
+                    className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Main Content Area */}
+                <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                  {/* Summary row */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Status Badge */}
+                    <div className={`p-4 rounded-2xl border flex flex-col justify-center items-center text-center ${debtInfo.isUpToDate ? "bg-emerald-50 border-emerald-100 text-emerald-800" : "bg-rose-50 border-rose-100 text-rose-800"}`}>
+                      <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                        Estado de Cuenta
+                      </p>
+                      {debtInfo.isUpToDate ? (
+                        <>
+                          <div className="text-emerald-500 bg-emerald-100/50 p-1.5 rounded-full mb-1">
+                            <Check size={18} strokeWidth={3} />
+                          </div>
+                          <span className="text-xs font-black uppercase tracking-wider">
+                            Al Día 🎉
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-rose-500 bg-rose-100/50 p-1.5 rounded-full mb-1">
+                            <AlertTriangle size={18} strokeWidth={3} />
+                          </div>
+                          <span className="text-xs font-black uppercase tracking-wider">
+                            En Mora ⚠️ ({debtInfo.unpaidCount} Mes{debtInfo.unpaidCount > 1 ? "es" : ""})
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Maintenance Fee */}
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-center items-center text-center">
+                      <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                        Cuota Mensual
+                      </p>
+                      <p className="text-lg font-black text-slate-800 font-mono">
+                        RD$ {historyUnit.maintenanceFee?.toLocaleString()}
+                      </p>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tight mt-1">
+                        Mantenimiento ordinario
+                      </p>
+                    </div>
+
+                    {/* Total Debt */}
+                    <div className={`p-4 rounded-2xl border flex flex-col justify-center items-center text-center ${debtInfo.totalOwed > 0 ? "bg-amber-50 border-amber-100" : "bg-slate-50 border-slate-100"}`}>
+                      <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                        Total Adeudado
+                      </p>
+                      <p className={`text-lg font-black font-mono ${debtInfo.totalOwed > 0 ? "text-amber-600" : "text-slate-800"}`}>
+                        RD$ {debtInfo.totalOwed.toLocaleString()}
+                      </p>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tight mt-1">
+                        Suma de cuotas vencidas
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Tabs */}
+                  <div className="flex border-b border-slate-100 pb-px gap-1">
+                    <button
+                      onClick={() => setHistoryTab("calendar")}
+                      className={`pb-3 px-4 text-[10px] font-black uppercase tracking-wider transition-colors border-b-2 relative ${historyTab === "calendar" ? "border-blue-600 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+                    >
+                      Calendario de Cobros (Últimos 12 Meses)
+                    </button>
+                    <button
+                      onClick={() => setHistoryTab("transactions")}
+                      className={`pb-3 px-4 text-[10px] font-black uppercase tracking-wider transition-colors border-b-2 relative ${historyTab === "transactions" ? "border-blue-600 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+                    >
+                      Transacciones de Mantenimiento ({debtInfo.unitTxs.length})
+                    </button>
+                  </div>
+
+                  {/* Tab contents */}
+                  {historyTab === "calendar" ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[350px] overflow-y-auto pr-1">
+                      {debtInfo.paidMonthsInfo.map(({ month, paid: monthPaid, payment: monthPayment }) => (
+                        <div
+                          key={month}
+                          className={`p-3.5 rounded-2xl border flex items-center justify-between transition-all ${monthPaid ? "bg-emerald-50/40 border-emerald-100/60" : "bg-slate-50/50 border-slate-100"}`}
+                        >
+                          <div>
+                            <p className="text-xs font-black text-slate-800">
+                              {(() => {
+                                const [year, mNum] = month.split("-");
+                                const monthNames = [
+                                  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                                  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+                                ];
+                                const monthIndex = parseInt(mNum, 10) - 1;
+                                return `${monthNames[monthIndex]} ${year}`;
+                              })()}
+                            </p>
+                            <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">
+                              Cuota: RD$ {historyUnit.maintenanceFee?.toLocaleString()}
+                            </p>
+                          </div>
+
+                          <div>
+                            {monthPaid ? (
+                              <div className="flex flex-col items-end gap-1.5">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[8px] font-black uppercase tracking-widest leading-none">
+                                  <Check size={8} strokeWidth={4} /> PAGADO
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    if (!monthPayment) return;
+                                    const amount = monthPayment.amount || historyUnit.maintenanceFee || 0;
+                                    const dateStr = monthPayment.date || new Date().toISOString().split("T")[0];
+                                    const txId = monthPayment.id ? monthPayment.id.slice(-6).toUpperCase() : `TX-${Date.now().toString().slice(-6)}`;
+                                    const parsed = parsePaymentDescription(monthPayment.description);
+                                    
+                                    generateCondoInvoicePDF(
+                                      currentCondo?.name || "CONDOMINIO",
+                                      currentCondo?.address || "Administración General",
+                                      historyUnit,
+                                      amount,
+                                      month,
+                                      parsed.method,
+                                      parsed.note,
+                                      txId,
+                                      dateStr,
+                                      {
+                                        received: parsed.received,
+                                        change: parsed.change,
+                                        bank: parsed.bank,
+                                        ref: parsed.ref,
+                                        rate: parsed.rate,
+                                        usdAmount: parsed.usdAmount
+                                      }
+                                    );
+                                  }}
+                                  className="h-7 px-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-md text-[8px] font-black uppercase tracking-widest flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+                                  title="Ver Factura PDF"
+                                >
+                                  <Printer size={10} strokeWidth={2.5} /> Recibo
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-end gap-1.5">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[8px] font-black uppercase tracking-widest leading-none">
+                                  PENDIENTE
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
+                      {debtInfo.unitTxs.length === 0 ? (
+                        <div className="p-8 text-center border-2 border-dashed border-slate-100 rounded-2xl">
+                          <p className="text-xs text-slate-400 font-bold italic">
+                            No hay transacciones registradas para esta unidad.
+                          </p>
+                        </div>
+                      ) : (
+                        [...debtInfo.unitTxs]
+                          .sort((a, b) => b.date.localeCompare(a.date))
+                          .map((tx) => {
+                            const parsed = parsePaymentDescription(tx.description);
+                            return (
+                              <div
+                                key={tx.id}
+                                className="p-3.5 bg-white border border-slate-100 rounded-2xl flex items-center justify-between hover:bg-slate-50/40 transition-all"
+                              >
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-black font-mono text-slate-700">
+                                      {tx.date}
+                                    </span>
+                                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 leading-none">
+                                      {parsed.method || "Mantenimiento"}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-slate-500 leading-relaxed font-semibold">
+                                    {tx.description?.split("|")[0]}
+                                  </p>
+                                  {parsed.note && (
+                                    <p className="text-[9px] text-slate-400 italic">
+                                      Nota: {parsed.note}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className="flex flex-col items-end gap-1.5">
+                                  <span className="text-xs font-black font-mono text-emerald-600">
+                                    RD$ {tx.amount?.toLocaleString()}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      const amount = tx.amount || historyUnit.maintenanceFee || 0;
+                                      const dateStr = tx.date || new Date().toISOString().split("T")[0];
+                                      const txId = tx.id ? tx.id.slice(-6).toUpperCase() : `TX-${Date.now().toString().slice(-6)}`;
+                                      
+                                      generateCondoInvoicePDF(
+                                        currentCondo?.name || "CONDOMINIO",
+                                        currentCondo?.address || "Administración General",
+                                        historyUnit,
+                                        amount,
+                                        dateStr.slice(0, 7),
+                                        parsed.method,
+                                        parsed.note,
+                                        txId,
+                                        dateStr,
+                                        {
+                                          received: parsed.received,
+                                          change: parsed.change,
+                                          bank: parsed.bank,
+                                          ref: parsed.ref,
+                                          rate: parsed.rate,
+                                          usdAmount: parsed.usdAmount
+                                        }
+                                      );
+                                    }}
+                                    className="h-7 px-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-md text-[8px] font-black uppercase tracking-widest flex items-center gap-1 transition-all cursor-pointer"
+                                    title="Descargar Factura PDF"
+                                  >
+                                    <Printer size={10} strokeWidth={2.5} /> Recibo
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-between items-center shrink-0">
+                  <div className="flex gap-4">
+                    {historyUnit.whatsapp && (
+                      <a
+                        href={`https://wa.me/${historyUnit.whatsapp.replace(/[^0-9]/g, "")}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 uppercase tracking-wider"
+                      >
+                        <MessageCircle size={14} className="text-emerald-600 fill-emerald-50" /> Enviar WhatsApp
+                      </a>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setHistoryUnit(null)}
+                    className="h-10 px-5 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer"
+                  >
+                    Cerrar Historial
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
+      </AnimatePresence>
     </div>
   );
 }
@@ -4425,6 +5036,7 @@ function CondoView({
   suppliers,
   onAddSupplier,
   onDeleteSupplier,
+  transactions = [],
 }: {
   condos: Condominio[];
   units: Unidad[];
@@ -4461,6 +5073,7 @@ function CondoView({
   onDeleteStaff: (id: string) => void;
   onAddSupplier: (s: any) => void;
   onDeleteSupplier: (id: string) => void;
+  transactions?: Transaction[];
 }) {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -4778,6 +5391,8 @@ function CondoView({
                 onAdd={onAddUnit}
                 onUpdate={onUpdateUnit}
                 onDelete={onDeleteUnit}
+                transactions={transactions}
+                condos={condos}
               />
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 border-t border-slate-100 pt-10">
