@@ -9301,6 +9301,7 @@ function SettingsView({
   const [newCatName, setNewCatName] = useState("");
   const [newConceptName, setNewConceptName] = useState("");
   const [selectedCatId, setSelectedCatId] = useState("");
+  const [resetConfirmStep, setResetConfirmStep] = useState<0 | 1 | 2>(0);
 
   // Local state for auto-save to avoid too many re-renders in parent
   const [localAutoSave, setLocalAutoSave] = useState(autoSaveSettings);
@@ -9355,6 +9356,15 @@ function SettingsView({
       }
     };
     reader.readAsText(file);
+  };
+
+  const clearAllData = () => {
+    localStorage.removeItem("condobill_transactions");
+    localStorage.removeItem("condobill_sales");
+    localStorage.removeItem("condobill_quotes");
+    localStorage.removeItem("condobill_receipts");
+    localStorage.removeItem("condobill_cortes");
+    window.location.reload();
   };
 
   const activeType =
@@ -9835,6 +9845,8 @@ function SettingsView({
                 </label>
               </div>
 
+
+
               <div className="pt-8 border-t border-slate-100 space-y-8">
                 <div
                   className="flex items-center gap-4 group cursor-pointer"
@@ -10064,6 +10076,121 @@ function SettingsView({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Danger Zone: Reset Panel Data - ALWAYS VISIBLE AT THE BOTTOM of settings view */}
+      <div className="p-8 bg-rose-50/80 rounded-2xl border border-rose-150 space-y-4 shadow-sm mt-6 animate-in fade-in duration-500">
+        {resetConfirmStep === 0 && (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-lg shadow-rose-200">
+                <AlertTriangle size={24} strokeWidth={2.5} />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-rose-900 uppercase tracking-widest leading-none">
+                  Zona de Peligro: Vaciar Valores Monetarios (Dinero a 0)
+                </h4>
+                <p className="text-[10px] text-rose-500 font-bold uppercase tracking-tight mt-1">
+                  Elimina de forma irreversible las transacciones, ventas, recibos y cortes de caja sin afectar los condominios.
+                </p>
+              </div>
+            </div>
+            
+            <p className="text-xs text-rose-800 font-semibold leading-relaxed">
+              Al pulsar el botón inferior, se eliminarán de inmediato y de manera permanente: transacciones registradas, recibos de pago, ventas de gas/productos, cotizaciones y cortes de caja. Sus condominios, unidades, productos registrados, clientes, empleados, credenciales de acceso y configuraciones de marca/ticket se mantendrán totalmente intactos. Los balances volverán a estar en RD$ 0.00.
+            </p>
+
+            <div className="pt-2">
+              <button
+                onClick={() => setResetConfirmStep(1)}
+                className="h-12 px-6 bg-rose-600 hover:bg-rose-700 hover:scale-[1.01] active:scale-[0.99] text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-rose-250 flex items-center gap-2.5 cursor-pointer"
+              >
+                <Trash2 size={15} strokeWidth={2.5} />
+                Eliminar datos financieros
+              </button>
+            </div>
+          </>
+        )}
+
+        {resetConfirmStep === 1 && (
+          <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-200">
+                <AlertTriangle size={24} strokeWidth={2.5} />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-amber-900 uppercase tracking-widest leading-none">
+                  🚨 PASO 1 DE 2: ¿CONFIRMA ESTA ACCIÓN?
+                </h4>
+                <p className="text-[10px] text-amber-600 font-bold uppercase tracking-tight mt-1">
+                  Por favor lea detenidamente antes de continuar
+                </p>
+              </div>
+            </div>
+            
+            <p className="text-xs text-amber-800 font-semibold leading-relaxed bg-amber-50 p-4 rounded-xl border border-amber-200">
+              Usted está a punto de borrar permanentemente todo el historial financiero de la aplicación. Se eliminarán todas las transacciones, ventas registradas, cotizaciones y cortes de caja. Los saldos de caja se reiniciarán a RD$ 0.00.
+              <br /><br />
+              <strong className="text-amber-950 font-black">IMPORTANTE:</strong> Sus condominios, unidades, clientes, productos y accesos de usuario se mantendrán intactos. Esta operación es irreversible.
+            </p>
+
+            <div className="flex flex-wrap gap-3 pt-2">
+              <button
+                onClick={() => setResetConfirmStep(2)}
+                className="h-10 px-5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-md flex items-center gap-2 cursor-pointer"
+              >
+                Sí, continuar al paso final
+              </button>
+              <button
+                onClick={() => setResetConfirmStep(0)}
+                className="h-10 px-5 bg-slate-600 hover:bg-slate-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {resetConfirmStep === 2 && (
+          <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-700 text-white flex items-center justify-center shadow-lg shadow-rose-300 animate-pulse">
+                <AlertTriangle size={24} strokeWidth={2.5} />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-rose-950 uppercase tracking-widest leading-none">
+                  🔒 PASO 2 DE 2: CONFIRMACIÓN FINAL
+                </h4>
+                <p className="text-[10px] text-rose-600 font-bold uppercase tracking-tight mt-1">
+                  Esta es la confirmación definitiva
+                </p>
+              </div>
+            </div>
+            
+            <p className="text-xs text-rose-900 font-bold leading-relaxed bg-rose-100 p-4 rounded-xl border border-rose-300">
+              ¿Confirma de manera absoluta que desea vaciar todos los registros de dinero de la base de datos y reiniciar los balances a cero? Una vez ejecutado, la página se recargará automáticamente y los datos financieros antiguos ya no existirán.
+            </p>
+
+            <div className="flex flex-wrap gap-3 pt-2">
+              <button
+                onClick={() => {
+                  clearAllData();
+                  setResetConfirmStep(0);
+                }}
+                className="h-10 px-5 bg-rose-700 hover:bg-rose-800 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-md flex items-center gap-2 cursor-pointer"
+              >
+                <Trash2 size={14} strokeWidth={2.5} />
+                SÍ, BORRAR TODOS LOS DATOS FINANCIEROS
+              </button>
+              <button
+                onClick={() => setResetConfirmStep(0)}
+                className="h-10 px-5 bg-slate-600 hover:bg-slate-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer"
+              >
+                No, cancelar
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
